@@ -332,30 +332,10 @@ impl D64 {
 
                 let quotient = result / divisor;
                 let remainder = result % divisor;
+                let half = divisor / 2;
 
                 // Banker's rounding
-                let half = divisor / 2;
-                let rounded = if remainder.abs() > half {
-                    // Round away from zero
-                    if result >= 0 {
-                        quotient + 1
-                    } else {
-                        quotient - 1
-                    }
-                } else if remainder.abs() == half {
-                    // Exactly half - round to even
-                    if quotient % 2 == 0 {
-                        quotient
-                    } else {
-                        if result >= 0 {
-                            quotient + 1
-                        } else {
-                            quotient - 1
-                        }
-                    }
-                } else {
-                    quotient
-                };
+                let rounded = banker_round(quotient, remainder, half);
 
                 Self { value: rounded }
             }
@@ -405,28 +385,10 @@ impl D64 {
 
                 let quotient = result / divisor;
                 let remainder = result % divisor;
+                let half = divisor / 2;
 
                 // Banker's rounding
-                let half = divisor / 2;
-                let rounded = if remainder.abs() > half {
-                    if result >= 0 {
-                        quotient + 1
-                    } else {
-                        quotient - 1
-                    }
-                } else if remainder.abs() == half {
-                    if quotient % 2 == 0 {
-                        quotient
-                    } else {
-                        if result >= 0 {
-                            quotient + 1
-                        } else {
-                            quotient - 1
-                        }
-                    }
-                } else {
-                    quotient
-                };
+                let rounded = banker_round(quotient, remainder, half);
 
                 Some(Self { value: rounded })
             }
@@ -1084,27 +1046,7 @@ impl D64 {
         let remainder = self.value % Self::SCALE;
         let half = Self::SCALE / 2;
 
-        let rounded_quotient = if remainder > half {
-            quotient + 1
-        } else if remainder < -half {
-            quotient - 1
-        } else if remainder == half {
-            // Banker's rounding: round to even
-            if quotient % 2 == 0 {
-                quotient
-            } else {
-                quotient + 1
-            }
-        } else if remainder == -half {
-            // Banker's rounding: round to even
-            if quotient % 2 == 0 {
-                quotient
-            } else {
-                quotient - 1
-            }
-        } else {
-            quotient
-        };
+        let rounded_quotient =banker_round(quotient, remainder, half);
 
         Self {
             value: rounded_quotient * Self::SCALE,
@@ -1139,26 +1081,7 @@ impl D64 {
         let remainder = self.value % rounding_factor;
         let half = rounding_factor / 2;
 
-        let rounded = if remainder > half {
-            quotient + 1
-        } else if remainder < -half {
-            quotient - 1
-        } else if remainder == half {
-            // Banker's rounding
-            if quotient % 2 == 0 {
-                quotient
-            } else {
-                quotient + 1
-            }
-        } else if remainder == -half {
-            if quotient % 2 == 0 {
-                quotient
-            } else {
-                quotient - 1
-            }
-        } else {
-            quotient
-        };
+        let rounded =banker_round(quotient, remainder, half);
 
         Self {
             value: rounded * rounding_factor,
@@ -1379,20 +1302,7 @@ impl D64 {
         let remainder = self.value % Self::SCALE;
         let half = Self::SCALE / 2;
 
-        if remainder > half {
-            quotient + 1
-        } else if remainder < -half {
-            quotient - 1
-        } else if remainder == half || remainder == -half {
-            // Banker's rounding: round to even
-            if quotient % 2 == 0 {
-                quotient
-            } else {
-                quotient + 1
-            }
-        } else {
-            quotient
-        }
+        banker_round(quotient, remainder, half)
     }
 
     /// Creates a D64 from an i64, returning an error on overflow.
@@ -2461,6 +2371,32 @@ const fn isqrt(n: u64) -> u64 {
     right
 }
 
+#[inline(always)]
+const fn banker_round(quotient : i64, remainder : i64, half : i64) -> i64 {
+    if remainder > half {
+        quotient + 1
+    } else if remainder < -half {
+        quotient - 1
+    } else if remainder == half {
+        // Banker's rounding: round to even
+        if quotient % 2 == 0 {
+            quotient
+        } else {
+            quotient + 1
+        }
+    } else if remainder == -half {
+        // Banker's rounding: round to even
+        if quotient % 2 == 0 {
+            quotient
+        } else {
+            quotient - 1
+        }
+    } else {
+        quotient
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use std::string::ToString;
@@ -2807,14 +2743,40 @@ mod conversion_tests {
 
     #[test]
     fn test_to_i64_round() {
-        let d1 = D64::from_raw(250_000_000); // 2.5
-        assert_eq!(d1.to_i64_round(), 2); // Banker's rounding: round to even
+        assert_eq!(D64::from_raw(110_000_000).to_i64_round(), 1); // 1.1: Normal rounding
+        assert_eq!(D64::from_raw(140_000_000).to_i64_round(), 1); // 1.4: Normal rounding
+        assert_eq!(D64::from_raw(150_000_000).to_i64_round(), 2); // 1.5: Banker's rounding: round to even
+        assert_eq!(D64::from_raw(160_000_000).to_i64_round(), 2); // 1.6: Normal rounding
 
-        let d2 = D64::from_raw(350_000_000); // 3.5
-        assert_eq!(d2.to_i64_round(), 4); // Banker's rounding: round to even
+        assert_eq!(D64::from_raw(240_000_000).to_i64_round(), 2); // 2.4: Normal rounding
+        assert_eq!(D64::from_raw(250_000_000).to_i64_round(), 2); // 2.5: Banker's rounding: round to even
+        assert_eq!(D64::from_raw(260_000_000).to_i64_round(), 3); // 2.6: Normal rounding
 
-        let d3 = D64::from_raw(260_000_000); // 2.6
-        assert_eq!(d3.to_i64_round(), 3); // Normal rounding
+        assert_eq!(D64::from_raw(340_000_000).to_i64_round(), 3); // 3.4: Normal rounding
+        assert_eq!(D64::from_raw(350_000_000).to_i64_round(), 4); // 3.5: Banker's rounding: round to even
+        assert_eq!(D64::from_raw(360_000_000).to_i64_round(), 4); // 3.6: Normal rounding
+        
+        assert_eq!(D64::from_raw(440_000_000).to_i64_round(), 4); // 4.4: Normal rounding
+        assert_eq!(D64::from_raw(450_000_000).to_i64_round(), 4); // 4.5: Banker's rounding: round to even
+        assert_eq!(D64::from_raw(460_000_000).to_i64_round(), 5); // 4.6: Normal rounding
+
+
+        assert_eq!(D64::from_raw(-110_000_000).to_i64_round(), -1); // -1.1: Normal rounding
+        assert_eq!(D64::from_raw(-140_000_000).to_i64_round(), -1); // -1.4: Normal rounding
+        assert_eq!(D64::from_raw(-150_000_000).to_i64_round(), -2); // -1.5: Banker's rounding: round to even
+        assert_eq!(D64::from_raw(-160_000_000).to_i64_round(), -2); // -1.6: Normal rounding
+        
+        assert_eq!(D64::from_raw(-240_000_000).to_i64_round(), -2); // -2.4: Normal rounding
+        assert_eq!(D64::from_raw(-250_000_000).to_i64_round(), -2); // -2.5: Banker's rounding: round to even
+        assert_eq!(D64::from_raw(-260_000_000).to_i64_round(), -3); // -2.6: Normal rounding
+
+        assert_eq!(D64::from_raw(-340_000_000).to_i64_round(), -3); // -3.4: Normal rounding
+        assert_eq!(D64::from_raw(-350_000_000).to_i64_round(), -4); // -3.5: Banker's rounding: round to even
+        assert_eq!(D64::from_raw(-360_000_000).to_i64_round(), -4); // -3.6: Normal rounding
+
+        assert_eq!(D64::from_raw(-440_000_000).to_i64_round(), -4); // -4.4: Normal rounding
+        assert_eq!(D64::from_raw(-450_000_000).to_i64_round(), -4); // -4.5: Banker's rounding: round to even
+        assert_eq!(D64::from_raw(-460_000_000).to_i64_round(), -5); // -4.6: Normal rounding
     }
 
     #[test]
@@ -3158,6 +3120,8 @@ mod string_tests {
     fn test_from_str_leading_decimal() {
         assert_eq!(D64::from_str_exact("0.5").unwrap().to_raw(), 50_000_000);
         assert_eq!(D64::from_str_exact(".5").unwrap().to_raw(), 50_000_000);
+        assert_eq!(D64::from_str_exact("-0.5").unwrap().to_raw(), -50_000_000);
+        assert_eq!(D64::from_str_exact("-.5").unwrap().to_raw(), -50_000_000);
     }
 
     #[test]
