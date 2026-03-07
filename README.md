@@ -1,4 +1,4 @@
-# fixdec - v3
+# fixdec - v4
 
 **High-performance fixed-point decimal arithmetic for financial calculations and cryptocurrency.**
 
