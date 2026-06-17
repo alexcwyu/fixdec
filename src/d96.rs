@@ -8,7 +8,7 @@ use core::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
-use crate::DecimalError;
+use crate::{D64, DecimalError};
 
 /// 96-bit fixed-point decimal with 12 decimal places of precision.
 ///
@@ -1536,6 +1536,75 @@ impl D96 {
             Some(result) => Ok(result),
             None => Err(DecimalError::InvalidFormat),
         }
+    }
+}
+
+// ============================================================================
+// D64 <-> D96 Conversion
+// ============================================================================
+
+impl D96 {
+    /// Widens a `D64` (8 decimals) into a `D96` (12 decimals).
+    ///
+    /// Always exact and infallible: the raw value is scaled by `10^(12-8)`, and
+    /// `i64::MAX * 10_000` is well within the 96-bit range.
+    #[inline(always)]
+    pub const fn from_d64(value: D64) -> Self {
+        Self {
+            value: value.to_raw() as i128 * 10_000,
+        }
+    }
+
+    /// Narrows this `D96` to a `D64` exactly.
+    ///
+    /// Returns `Err(PrecisionLoss)` if the value has more than 8 significant
+    /// decimals, or `Err(Overflow)`/`Err(Underflow)` if the magnitude exceeds
+    /// `D64`'s range. Use [`to_d64_round`](Self::to_d64_round) to round instead.
+    #[inline(always)]
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn to_d64(self) -> crate::Result<D64> {
+        // The low 4 decimal digits must be zero for an exact conversion.
+        if self.value % 10_000 != 0 {
+            return Err(DecimalError::PrecisionLoss);
+        }
+        let q = self.value / 10_000;
+        if q > i64::MAX as i128 {
+            Err(DecimalError::Overflow)
+        } else if q < i64::MIN as i128 {
+            Err(DecimalError::Underflow)
+        } else {
+            Ok(D64::from_raw(q as i64))
+        }
+    }
+
+    /// Narrows this `D96` to a `D64`, rounding the extra 4 decimals using
+    /// banker's rounding (round half to even).
+    ///
+    /// Only fails (`Overflow`/`Underflow`) when the magnitude exceeds `D64`'s
+    /// range; never loses precision silently without rounding.
+    #[inline(always)]
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn to_d64_round(self) -> crate::Result<D64> {
+        let quotient = self.value / 10_000;
+        let remainder = self.value % 10_000;
+        let rounded = banker_round(quotient, remainder, 5_000);
+        if rounded > i64::MAX as i128 {
+            Err(DecimalError::Overflow)
+        } else if rounded < i64::MIN as i128 {
+            Err(DecimalError::Underflow)
+        } else {
+            Ok(D64::from_raw(rounded as i64))
+        }
+    }
+}
+
+impl TryFrom<D96> for D64 {
+    type Error = DecimalError;
+
+    /// Exact narrowing of a `D96` to a `D64` (see [`D96::to_d64`]).
+    #[inline(always)]
+    fn try_from(value: D96) -> crate::Result<Self> {
+        value.to_d64()
     }
 }
 

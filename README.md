@@ -196,6 +196,17 @@ price.mul_i64(quantity)?
 x.mul_add(y, z)?  // (x * y) + z
 ```
 
+### Type Conversions (D64 ↔ D96)
+
+```rust
+// Widen D64 (8 decimals) -> D96 (12 decimals): always exact and infallible
+let wide: D96 = D64::from_str("1234.56")?.into();   // or d64.to_d96()
+
+// Narrow D96 -> D64: fallible (8 decimals max, smaller range)
+let narrow: D64 = D96::from_str("1234.56")?.try_into()?;   // exact, else PrecisionLoss / Overflow
+let rounded = D96::from_str("1.123456785")?.to_d64_round()?; // banker's-rounds the extra digits
+```
+
 ### Rounding
 
 ```rust

@@ -8,7 +8,7 @@ use core::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
-use crate::DecimalError;
+use crate::{D96, DecimalError};
 
 /// 64-bit fixed-point decimal with 8 decimal places of precision.
 ///
@@ -1250,6 +1250,29 @@ impl D64 {
             Some(result) => Ok(result),
             None => Err(DecimalError::InvalidFormat),
         }
+    }
+}
+
+// ============================================================================
+// D64 <-> D96 Conversion
+// ============================================================================
+
+impl D64 {
+    /// Widens this `D64` (8 decimals) to a `D96` (12 decimals).
+    ///
+    /// Always exact and infallible: the raw value is scaled by `10^(12-8)`.
+    #[inline(always)]
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn to_d96(self) -> D96 {
+        D96::from_d64(self)
+    }
+}
+
+impl From<D64> for D96 {
+    /// Lossless widening of a `D64` to a `D96`.
+    #[inline(always)]
+    fn from(value: D64) -> Self {
+        D96::from_d64(value)
     }
 }
 
