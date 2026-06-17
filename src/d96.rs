@@ -945,64 +945,94 @@ const fn mul_u128_by_small(a: u128, b: u128) -> (u128, u128) {
     (low, high)
 }
 
-/// Divide a 192-bit number by a u128 divisor
-/// Returns None if result doesn't fit in u128 or divisor is zero
+/// Long division of a 256-bit numerator (`high:low`) by a u128 `divisor` using
+/// base-2^32 limbs. Correct for ANY divisor up to 2^96: every remainder is
+/// `< divisor`, so `(rem << 32) | limb < divisor * 2^32 <= 2^128` never
+/// overflows a u128. The quotient is returned modulo 2^128 (the caller's early
+/// `high >= divisor` check guarantees it actually fits when used by the checked
+/// path).
+#[inline(always)]
+const fn div_256_by_u128_base32(low: u128, high: u128, divisor: u128) -> u128 {
+    let limbs = [
+        (high >> 96) & 0xFFFF_FFFF,
+        (high >> 64) & 0xFFFF_FFFF,
+        (high >> 32) & 0xFFFF_FFFF,
+        high & 0xFFFF_FFFF,
+        (low >> 96) & 0xFFFF_FFFF,
+        (low >> 64) & 0xFFFF_FFFF,
+        (low >> 32) & 0xFFFF_FFFF,
+        low & 0xFFFF_FFFF,
+    ];
+    let mut rem: u128 = 0;
+    let mut quo: u128 = 0;
+    let mut i = 0;
+    while i < 8 {
+        let cur = (rem << 32) | limbs[i];
+        quo = (quo << 32) | (cur / divisor); // cur / divisor < 2^32
+        rem = cur % divisor;
+        i += 1;
+    }
+    quo
+}
+
+/// Divide a 192-bit number by a u128 divisor.
+/// Returns None if result doesn't fit in u128 or divisor is zero.
 #[inline(always)]
 const fn div_192_by_u128(low: u128, high: u128, divisor: u128) -> Option<u128> {
     if divisor == 0 {
         return None;
     }
 
-    // If high part is >= divisor, result won't fit in u128
+    // If high part is >= divisor, the quotient won't fit in u128.
     if high >= divisor {
         return None;
     }
 
-    // Standard long division algorithm for 192-bit / 128-bit
-    // We split the 192-bit dividend into three 64-bit parts
+    if divisor <= u64::MAX as u128 {
+        // Fast path: base-2^64 long division. Safe because every remainder is
+        // < divisor <= u64::MAX, so `(rem << 64) | limb` fits in u128.
+        let low_hi = low >> 64;
+        let low_lo = low & 0xFFFF_FFFF_FFFF_FFFF;
 
-    let q_high = high / divisor;
-    let r_high = high % divisor;
+        let dividend_mid = (high << 64) | low_hi;
+        let q_mid = dividend_mid / divisor;
+        let r_mid = dividend_mid % divisor;
 
-    // Now we have remainder from high part and need to continue with low part
-    let low_hi = low >> 64;
-    let low_lo = low & 0xFFFF_FFFF_FFFF_FFFF;
+        let dividend_low = (r_mid << 64) | low_lo;
+        let q_low = dividend_low / divisor;
 
-    let dividend_mid = (r_high << 64) | low_hi;
-    let q_mid = dividend_mid / divisor;
-    let r_mid = dividend_mid % divisor;
-
-    let dividend_low = (r_mid << 64) | low_lo;
-    let q_low = dividend_low / divisor;
-
-    // q_high should be 0 for result to fit in 128 bits
-    if q_high > 0 {
-        return None;
+        Some((q_mid << 64) | q_low)
+    } else {
+        // divisor > 2^64: base-2^64 remainders can exceed 2^64 and would overflow
+        // when shifted, so use base-2^32 long division instead.
+        Some(div_256_by_u128_base32(low, high, divisor))
     }
-
-    Some((q_mid << 64) | q_low)
 }
 
-/// Wrapping version of 192-bit division by u128
+/// Wrapping version of 192-bit division by u128.
 #[inline(always)]
 const fn div_192_by_u128_wrapping(low: u128, high: u128, divisor: u128) -> u128 {
     if divisor == 0 {
         return 0;
     }
 
-    let r_high = high % divisor;
+    if divisor <= u64::MAX as u128 {
+        let r_high = high % divisor;
 
-    let low_hi = low >> 64;
-    let low_lo = low & 0xFFFF_FFFF_FFFF_FFFF;
+        let low_hi = low >> 64;
+        let low_lo = low & 0xFFFF_FFFF_FFFF_FFFF;
 
-    let dividend_mid = (r_high << 64) | low_hi;
-    let q_mid = dividend_mid / divisor;
-    let r_mid = dividend_mid % divisor;
+        let dividend_mid = (r_high << 64) | low_hi;
+        let q_mid = dividend_mid / divisor;
+        let r_mid = dividend_mid % divisor;
 
-    let dividend_low = (r_mid << 64) | low_lo;
-    let q_low = dividend_low / divisor;
+        let dividend_low = (r_mid << 64) | low_lo;
+        let q_low = dividend_low / divisor;
 
-    (q_mid << 64) | q_low
+        (q_mid << 64) | q_low
+    } else {
+        div_256_by_u128_base32(low, high, divisor)
+    }
 }
 
 // ============================================================================
@@ -2509,18 +2539,20 @@ impl fmt::Display for D96 {
 }
 
 // ============================================================================
-// Reciprocal Constants for Fast Division
+// Helpers for digit extraction during formatting
 // ============================================================================
 
-/// Fast division by 100 using reciprocal multiplication
-/// We use a 73-bit reciprocal: floor(2^73 / 100) = 94367431584242442199
+/// Exact division by 100, used to emit two decimal digits at a time.
+///
+/// History: this previously used a 73-bit round-down reciprocal
+/// (`floor(2^73 / 100)`) with `wrapping_mul`. That constant carries far too few
+/// fractional bits, so the approximation drifts badly for large operands and
+/// `wrapping_mul` could even discard high bits — producing non-digit bytes in
+/// the output (e.g. formatting `20000000000.0` yielded `"19949B1>960"`). Native
+/// division by the constant 100 is exact.
 #[inline(always)]
 const fn div100_u128(n: u128) -> u128 {
-    const RECIP: u128 = 94367431584242442199;
-    const SHIFT: u32 = 73;
-
-    let prod = n.wrapping_mul(RECIP);
-    prod >> SHIFT
+    n / 100
 }
 
 /// Format fractional part with exact fixed width (always write exactly `width` digits)
@@ -4723,5 +4755,127 @@ mod crypto_constant_tests {
         // 1 microGwei = 1 unit = 0.000000000001
         assert_eq!(D96::MICRO_GWEI.to_raw(), 1);
         assert_eq!(D96::KILO_WEI.to_raw(), 1);
+    }
+}
+
+// Property-based testing for D96 multiplication, mirroring the D64 suite.
+#[cfg(test)]
+mod d96_mul_property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Exact reference for the common case where the product of the two raw
+    /// operands fits in `i128` (both fit in `i64`, so the product is < 2^127).
+    /// Wider operands exercise the 192-bit slow path and are covered by the
+    /// explicit unit tests below.
+    fn mul_oracle_i128(a: i64, b: i64) -> Option<i128> {
+        let product = (a as i128) * (b as i128);
+        let quotient = product / D96::SCALE; // truncates toward zero
+        if quotient > D96::MAX.to_raw() || quotient < D96::MIN.to_raw() {
+            None
+        } else {
+            Some(quotient)
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_mul_matches_oracle(a in i64::MIN..=i64::MAX, b in i64::MIN..=i64::MAX) {
+            let got = D96::from_raw(a as i128)
+                .checked_mul(D96::from_raw(b as i128))
+                .map(D96::to_raw);
+            prop_assert_eq!(got, mul_oracle_i128(a, b), "a={}, b={}", a, b);
+        }
+
+        #[test]
+        fn prop_mul_commutative(a in i64::MIN..=i64::MAX, b in i64::MIN..=i64::MAX) {
+            prop_assert_eq!(
+                D96::from_raw(a as i128).checked_mul(D96::from_raw(b as i128)),
+                D96::from_raw(b as i128).checked_mul(D96::from_raw(a as i128)),
+            );
+        }
+
+        #[test]
+        fn prop_mul_identity(a in i64::MIN..=i64::MAX) {
+            let d = D96::from_raw(a as i128);
+            prop_assert_eq!(d.checked_mul(D96::ONE), Some(d));
+        }
+
+        #[test]
+        fn prop_to_i128_truncates(a in i64::MIN..=i64::MAX) {
+            prop_assert_eq!(D96::from_raw(a as i128).to_i128(), (a as i128) / D96::SCALE);
+        }
+    }
+}
+
+#[cfg(test)]
+mod d96_mul_regression_tests {
+    use super::*;
+    use std::string::ToString;
+
+    #[test]
+    fn test_mul_large_exact_fast_path() {
+        assert_eq!(
+            (D96::from_i32(100) * D96::from_i32(100)).to_raw(),
+            10_000i128 * D96::SCALE
+        );
+        assert_eq!(
+            (D96::from_i32(1_000_000) * D96::from_i32(1_000_000)).to_raw(),
+            1_000_000_000_000i128 * D96::SCALE
+        );
+    }
+
+    #[test]
+    fn test_mul_slow_path_exact() {
+        // from_i64(20_000_000) has raw 2e19 >= 2^64, forcing the 192-bit path.
+        let a = D96::from_i64(20_000_000);
+        let b = D96::from_i64(1_000);
+        let r = a.checked_mul(b).unwrap();
+        assert_eq!(r.to_raw(), 20_000_000_000i128 * D96::SCALE);
+        assert_eq!(r.to_string(), "20000000000");
+    }
+
+    #[test]
+    fn test_mul_fractional_exact() {
+        let p = D96::from_str_exact("2500.123456789012").unwrap();
+        let q = D96::from_str_exact("0.5").unwrap();
+        // 2500.123456789012 * 0.5 = 1250.061728394506
+        assert_eq!((p * q).to_string(), "1250.061728394506");
+    }
+}
+
+#[cfg(test)]
+mod d96_div_regression_tests {
+    use super::*;
+    use std::string::ToString;
+
+    // Regression: div_192_by_u128 used base-2^64 limbs whose remainder shift
+    // overflowed u128 when the divisor exceeded 2^64 (rhs value >= ~1.8e7),
+    // silently dropping bits and returning a wildly wrong quotient. These cases
+    // all force the base-2^32 slow path (divisor raw >= 2^64).
+    #[test]
+    fn test_div_large_divisor_exact() {
+        let num = D96::from_i64(1_000_000_000_000_000); // 1e15
+        let den = D96::from_i64(20_000_000); // raw 2e19 >= 2^64
+        let r = num.checked_div(den).unwrap();
+        assert_eq!(r.to_raw(), 50_000_000i128 * D96::SCALE); // 5e7
+        assert_eq!(r.to_string(), "50000000");
+    }
+
+    #[test]
+    fn test_div_large_divisor_fractional() {
+        let num = D96::ONE;
+        let den = D96::from_i64(20_000_000); // raw 2e19 >= 2^64
+        let r = num.checked_div(den).unwrap();
+        assert_eq!(r.to_raw(), 50_000); // 1 / 2e7 = 0.00000005
+        assert_eq!(r.to_string(), "0.00000005");
+    }
+
+    #[test]
+    fn test_div_very_large_operands() {
+        let num = D96::from_i64(1_000_000_000_000_000); // 1e15
+        let den = D96::from_i64(1_000_000_000_000); // 1e12, raw 1e24 >= 2^64
+        let r = num.checked_div(den).unwrap();
+        assert_eq!(r.to_raw(), 1_000i128 * D96::SCALE); // 1e3
     }
 }

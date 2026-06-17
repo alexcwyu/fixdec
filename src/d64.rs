@@ -217,8 +217,9 @@ impl D64 {
     /// Convert to basis points
     /// Example: `D64::from_str("0.01").unwrap().to_basis_points()` → 100
     pub const fn to_basis_points(self) -> i64 {
-        // Reverse: (value * 10_000) / SCALE
-        Self::div_by_scale_i64(self.value * 10_000)
+        // Reverse: (value * 10_000) / SCALE. Widen to i128 first: `value * 10_000`
+        // overflows i64 for decimal values above ~9.2 million.
+        ((self.value as i128 * 10_000) / Self::SCALE as i128) as i64
     }
 
     /// Creates a D64 from a mantissa and scale (like rust_decimal).
@@ -506,74 +507,34 @@ impl D64 {
 // ============================================================================
 
 impl D64 {
-    /// Magic constant for fast division by SCALE
-    /// Computed as: ceil((2^64) / SCALE) where SCALE = 10^8
-    /// M = ceil(2^64 / 10^8) = 184467440738
-    const RECIP_MUL: u64 = 184467440738u64;
-
-    /// Shift amount for reciprocal multiplication
-    /// We shift by 64 bits (one full u64 width)
-    const RECIP_SHIFT: u32 = 64;
-
-    /// Fast division of a 128-bit value by SCALE using reciprocal multiplication.
+    /// Exact division of a 128-bit value by `SCALE`, truncating toward zero.
     ///
-    /// This is an internal helper that implements: result = value / SCALE
-    /// using the identity: value / SCALE ≈ (value * RECIP_MUL) >> RECIP_SHIFT
+    /// Returns `None` if the quotient does not fit in `i64`.
     ///
-    /// # Returns
-    /// Returns None if the result doesn't fit in i64
+    /// History: this previously used reciprocal ("magic number") multiplication
+    /// with a 64-bit constant `M = ceil(2^64 / 10^8)` and a 64-bit shift. That
+    /// approximation is only exact for small operands — its error grows with
+    /// magnitude — so e.g. `100.0 * 100.0` came out as `10000.00000004` and
+    /// `to_i64(2039.99999999)` returned `2040`. Native 128-bit division by the
+    /// constant `SCALE` is exact (and is essentially what a correct reciprocal
+    /// would compile to), so we use it directly.
     #[inline(always)]
     const fn div_by_scale_i128(value: i128) -> Option<i64> {
-        if value == 0 {
-            return Some(0);
-        }
-
-        let is_negative = value < 0;
-        let abs_value = value.unsigned_abs();
-
-        // Split into high and low 64-bit parts
-        let hi = (abs_value >> 64) as u64;
-        let lo = abs_value as u64;
-
-        // Multiply each part by the reciprocal
-        let hi_result = (hi as u128) * (Self::RECIP_MUL as u128);
-        let lo_result = (lo as u128) * (Self::RECIP_MUL as u128);
-
-        // Combine: hi_result + (lo_result >> 64)
-        let quotient = hi_result + (lo_result >> Self::RECIP_SHIFT);
-
-        // Check if result fits in i64
-        if quotient > i64::MAX as u128 {
-            return None;
-        }
-
-        let result = if is_negative {
-            -(quotient as i64)
+        let quotient = value / (Self::SCALE as i128);
+        if quotient > i64::MAX as i128 || quotient < i64::MIN as i128 {
+            None
         } else {
-            quotient as i64
-        };
-
-        Some(result)
+            Some(quotient as i64)
+        }
     }
 
-    /// Fast division of a 64-bit value by SCALE.
+    /// Exact division of a 64-bit value by `SCALE`, truncating toward zero.
     ///
-    /// Optimized for the case where we know the input fits in i64.
+    /// `i64 / constant` is lowered by the compiler to an exact multiply-shift
+    /// sequence, so this is both correct and fast.
     #[inline(always)]
     const fn div_by_scale_i64(value: i64) -> i64 {
-        if value == 0 {
-            return 0;
-        }
-
-        let is_negative = value < 0;
-        let abs_value = value.unsigned_abs();
-
-        // For i64 input, we can simplify:
-        // value is at most 64 bits, so value * RECIP_MUL fits in 128 bits
-        let product = (abs_value as u128) * (Self::RECIP_MUL as u128);
-        let quotient = (product >> Self::RECIP_SHIFT) as i64;
-
-        if is_negative { -quotient } else { quotient }
+        value / Self::SCALE
     }
 
     /// Fast multiplication using reciprocal division
@@ -677,29 +638,11 @@ impl D64 {
         }
     }
 
-    /// Fast division by SCALE, wrapping on overflow (doesn't check bounds)
+    /// Exact division by SCALE, truncating toward zero and wrapping the result
+    /// into `i64` (used by `wrapping_mul`, which does not check bounds).
     #[inline(always)]
     const fn div_by_scale_i128_wrapping(value: i128) -> i64 {
-        if value == 0 {
-            return 0;
-        }
-
-        let is_negative = value < 0;
-        let abs_value = value.unsigned_abs();
-
-        let hi = (abs_value >> 64) as u64;
-        let lo = abs_value as u64;
-
-        let hi_result = (hi as u128) * (Self::RECIP_MUL as u128);
-        let lo_result = (lo as u128) * (Self::RECIP_MUL as u128);
-
-        let quotient = (hi_result + (lo_result >> Self::RECIP_SHIFT)) as i64;
-
-        if is_negative {
-            quotient.wrapping_neg()
-        } else {
-            quotient
-        }
+        (value / (Self::SCALE as i128)) as i64
     }
 }
 
@@ -4197,67 +4140,176 @@ mod fast_mul_property_tests {
     use super::*;
     use proptest::prelude::*;
 
+    /// Independent, exact reference for D64 fixed-point multiplication: widen both
+    /// raw operands to `i128`, multiply, then divide by `SCALE` truncating toward
+    /// zero. Returns `None` when the result does not fit in `i64` (matching
+    /// `checked_mul`'s contract).
+    ///
+    /// This is the canonical definition of the operation, computed by a different
+    /// route than the implementation, so it is a genuine oracle. The previous test
+    /// compared `checked_mul` against *itself* (`baseline` and `fast` both called
+    /// `checked_mul`) with a `diff <= 1` tolerance over raw operands <= 1e9, so it
+    /// could never fail and never exercised values large enough to surface the
+    /// reciprocal-division error (e.g. `100.0 * 100.0`).
+    fn mul_oracle(a: i64, b: i64) -> Option<i64> {
+        let product = (a as i128) * (b as i128);
+        let quotient = product / (D64::SCALE as i128); // truncates toward zero
+        if quotient > i64::MAX as i128 || quotient < i64::MIN as i128 {
+            None
+        } else {
+            Some(quotient as i64)
+        }
+    }
+
     proptest! {
+        // Full i64 range for both raw operands — the case the old test missed.
         #[test]
-        fn prop_fast_mul_matches_baseline(
-            a in -1_000_000_000i64..1_000_000_000i64,
-            b in -1_000_000_000i64..1_000_000_000i64,
+        fn prop_mul_matches_exact_oracle(a in i64::MIN..=i64::MAX, b in i64::MIN..=i64::MAX) {
+            let got = D64::from_raw(a).checked_mul(D64::from_raw(b)).map(D64::to_raw);
+            prop_assert_eq!(got, mul_oracle(a, b), "a={}, b={}", a, b);
+        }
+
+        // Denser sampling across realistic financial magnitudes (raw up to ~1e15,
+        // i.e. decimal values up to ~1e7).
+        #[test]
+        fn prop_mul_matches_oracle_financial(
+            a in -1_000_000_000_000_000i64..=1_000_000_000_000_000,
+            b in -1_000_000_000_000_000i64..=1_000_000_000_000_000,
         ) {
-            let d_a = D64::from_raw(a);
-            let d_b = D64::from_raw(b);
+            let got = D64::from_raw(a).checked_mul(D64::from_raw(b)).map(D64::to_raw);
+            prop_assert_eq!(got, mul_oracle(a, b), "a={}, b={}", a, b);
+        }
 
-            let baseline = d_a.checked_mul(d_b);
-            let fast = d_a.checked_mul(d_b);
+        #[test]
+        fn prop_mul_commutative(a in i64::MIN..=i64::MAX, b in i64::MIN..=i64::MAX) {
+            prop_assert_eq!(
+                D64::from_raw(a).checked_mul(D64::from_raw(b)),
+                D64::from_raw(b).checked_mul(D64::from_raw(a)),
+            );
+        }
 
-            match (baseline, fast) {
-                (Some(base_val), Some(fast_val)) => {
-                    let diff = (base_val.to_raw() - fast_val.to_raw()).abs();
-                    prop_assert!(
-                        diff <= 1,
-                        "Mismatch: baseline={}, fast={}, diff={}",
-                        base_val.to_raw(), fast_val.to_raw(), diff
-                    );
-                }
-                (None, None) => {
-                    // Both overflow - OK
-                }
-                (base, fast) => {
-                    prop_assert!(
-                        false,
-                        "Overflow mismatch: baseline={:?}, fast={:?}",
-                        base.map(|v| v.to_raw()),
-                        fast.map(|v| v.to_raw())
-                    );
-                }
+        #[test]
+        fn prop_mul_identity(a in i64::MIN..=i64::MAX) {
+            prop_assert_eq!(D64::from_raw(a).checked_mul(D64::ONE), Some(D64::from_raw(a)));
+        }
+
+        #[test]
+        fn prop_mul_zero(a in i64::MIN..=i64::MAX) {
+            prop_assert_eq!(D64::from_raw(a).checked_mul(D64::ZERO), Some(D64::ZERO));
+        }
+
+        // to_i64 must equal exact truncating division by SCALE.
+        #[test]
+        fn prop_to_i64_truncates(a in i64::MIN..=i64::MAX) {
+            prop_assert_eq!(D64::from_raw(a).to_i64(), a / D64::SCALE);
+        }
+
+        // saturating_mul agrees with checked_mul wherever the latter is Some.
+        #[test]
+        fn prop_saturating_mul_agrees(a in i64::MIN..=i64::MAX, b in i64::MIN..=i64::MAX) {
+            if let Some(exact) = D64::from_raw(a).checked_mul(D64::from_raw(b)) {
+                prop_assert_eq!(D64::from_raw(a).saturating_mul(D64::from_raw(b)), exact);
             }
         }
+    }
+}
 
-        #[test]
-        fn prop_fast_mul_commutative(
-            a in -1_000_000i64..1_000_000i64,
-            b in -1_000_000i64..1_000_000i64,
-        ) {
-            let d_a = D64::from_raw(a * D64::SCALE);
-            let d_b = D64::from_raw(b * D64::SCALE);
+// Regression tests for the reciprocal-division correctness bug (issue: D64
+// multiplication and `to_i64`/`round`/`trunc`/`to_basis_points` were inexact for
+// non-trivial operands because division by SCALE used a 64-bit "magic number"
+// reciprocal whose error grows with magnitude).
+#[cfg(test)]
+mod mul_regression_tests {
+    use super::*;
+    use std::string::ToString;
 
-            let ab = d_a.checked_mul(d_b);
-            let ba = d_b.checked_mul(d_a);
+    #[test]
+    fn test_mul_large_values_exact() {
+        // Under the old reciprocal division these were off by +4, +490 and
+        // +1_225_804 respectively.
+        assert_eq!((D64::from_i32(100) * D64::from_i32(100)).to_raw(), 10_000 * D64::SCALE);
+        assert_eq!(
+            (D64::from_i32(1_000) * D64::from_i32(1_000)).to_raw(),
+            1_000_000 * D64::SCALE
+        );
+        assert_eq!(
+            (D64::from_i32(50_000) * D64::from_i32(50_000)).to_raw(),
+            2_500_000_000i64 * D64::SCALE
+        );
+        assert_eq!(
+            (D64::from_i32(90_000) * D64::from_i32(1_000)).to_raw(),
+            90_000_000i64 * D64::SCALE
+        );
+    }
 
-            prop_assert_eq!(ab, ba);
+    #[test]
+    fn test_mul_price_quantity_display() {
+        let price = D64::from_str_exact("1234.56").unwrap();
+        let qty = D64::from_i32(100);
+        assert_eq!((price * qty).to_string(), "123456");
+
+        let px = D64::from_str_exact("19.99").unwrap();
+        let n = D64::from_i32(7);
+        assert_eq!((px * n).to_string(), "139.93");
+    }
+
+    #[test]
+    fn test_mul_fractional_exact() {
+        let tenth = D64::from_str_exact("0.1").unwrap();
+        assert_eq!((tenth * tenth).to_string(), "0.01"); // 0.1 * 0.1
+        let a = D64::from_str_exact("1.5").unwrap();
+        assert_eq!((a * a).to_string(), "2.25"); // 1.5 * 1.5
+    }
+
+    #[test]
+    fn test_to_i64_large_truncation() {
+        // to_i64 of x.99999999 must truncate toward zero, not round up.
+        for n in [10i64, 2_039, 5_000, 50_000, 900_000, 9_000_000] {
+            let v = D64::from_raw(n * D64::SCALE + (D64::SCALE - 1));
+            assert_eq!(v.to_i64(), n, "to_i64 of {n}.99999999");
+            let vn = D64::from_raw(-(n * D64::SCALE + (D64::SCALE - 1)));
+            assert_eq!(vn.to_i64(), -n, "to_i64 of -{n}.99999999");
         }
+    }
 
-        #[test]
-        fn prop_fast_mul_zero(a in -1_000_000_000i64..1_000_000_000i64) {
-            let d_a = D64::from_raw(a);
-            let result = d_a.checked_mul(D64::ZERO);
-            prop_assert_eq!(result, Some(D64::ZERO));
-        }
+    #[test]
+    fn test_trunc_round_large() {
+        let v = D64::from_raw(5_000 * D64::SCALE + (D64::SCALE - 1)); // 5000.99999999
+        assert_eq!(v.trunc().to_raw(), 5_000 * D64::SCALE);
+        assert_eq!(v.round().to_raw(), 5_001 * D64::SCALE);
+        assert_eq!(v.to_i64_round(), 5_001);
+    }
 
-        #[test]
-        fn prop_fast_mul_one(a in -1_000_000_000i64..1_000_000_000i64) {
-            let d_a = D64::from_raw(a);
-            let result = d_a.checked_mul(D64::ONE);
-            prop_assert_eq!(result, Some(d_a));
-        }
+    #[test]
+    fn test_mul_add_large_exact() {
+        // (1000 * 1000) + 5 = 1_000_005
+        let r = D64::from_i32(1_000)
+            .mul_add(D64::from_i32(1_000), D64::from_i32(5))
+            .unwrap();
+        assert_eq!(r.to_raw(), 1_000_005i64 * D64::SCALE);
+    }
+
+    #[test]
+    fn test_to_basis_points_no_overflow() {
+        // 10_000_000.0 -> 100_000_000_000 bps. The old code overflowed i64 while
+        // computing `value * 10_000` for decimal values above ~9.2 million.
+        let v = D64::from_i32(10_000_000);
+        assert_eq!(v.to_basis_points(), 10_000_000i64 * 10_000);
+        // round-trip a small rate
+        let rate = D64::from_basis_points(50).unwrap(); // 0.005
+        assert_eq!(rate.to_basis_points(), 50);
+    }
+
+    #[test]
+    fn test_wrapping_and_saturating_mul() {
+        assert_eq!(
+            D64::from_i32(100).wrapping_mul(D64::from_i32(100)).to_raw(),
+            10_000 * D64::SCALE
+        );
+        assert_eq!(
+            D64::from_i32(100).saturating_mul(D64::from_i32(100)).to_raw(),
+            10_000 * D64::SCALE
+        );
+        assert_eq!(D64::MAX.saturating_mul(D64::MAX), D64::MAX);
     }
 }
