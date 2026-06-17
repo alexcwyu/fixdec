@@ -134,6 +134,13 @@ fn differential_d64_vs_oracle_and_rust_decimal() {
                 "div vs rust_decimal a={ar} b={br}: d64={r:?} dec={truncated} diff={diff}"
             );
         }
+
+        // ---- rem (exact; matches rust_decimal's truncated remainder) ----
+        if br != 0 && !(ar == i64::MIN && br == -1) {
+            let r = a % b;
+            assert_eq!(r.to_raw(), ar % br, "rem oracle mismatch a={ar} b={br}");
+            assert_eq!(d64_to_dec(r), da % db, "rem vs rust_decimal a={ar} b={br}");
+        }
     }
 }
 
@@ -209,6 +216,13 @@ fn differential_d96_vs_oracle_and_rust_decimal() {
                 diff <= one_ulp(12),
                 "div vs rust_decimal a={ar} b={br}: d96={r:?} dec={truncated} diff={diff}"
             );
+        }
+
+        // ---- rem (exact; matches rust_decimal's truncated remainder) ----
+        if br != 0 {
+            let r = a % b;
+            assert_eq!(r.to_raw(), ar % br, "rem oracle mismatch a={ar} b={br}");
+            assert_eq!(d96_to_dec(r), da % db, "rem vs rust_decimal a={ar} b={br}");
         }
     }
 }

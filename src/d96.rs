@@ -1,6 +1,8 @@
 use core::fmt;
 use core::iter::{Product, Sum};
-use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use core::ops::{
+    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
+};
 use core::str::FromStr;
 
 #[cfg(feature = "serde")]
@@ -920,6 +922,72 @@ impl D96 {
         match self.checked_div(rhs) {
             Some(result) => Ok(result),
             None => Err(DecimalError::Overflow),
+        }
+    }
+}
+
+// ============================================================================
+// Arithmetic Operations - Remainder (modulo)
+// ============================================================================
+
+impl D96 {
+    /// Checked remainder. Returns `None` if `rhs` is zero.
+    ///
+    /// Because both operands share the same `SCALE`, the decimal remainder is
+    /// exactly the raw integer remainder; e.g. `10.5 % 3.0 == 1.5`. The sign of
+    /// the result follows the dividend (truncated-division remainder), matching
+    /// Rust's integer `%` and `rust_decimal`.
+    #[inline(always)]
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn checked_rem(self, rhs: Self) -> Option<Self> {
+        match self.value.checked_rem(rhs.value) {
+            Some(r) => Some(Self { value: r }),
+            None => None,
+        }
+    }
+
+    /// Checked remainder. Returns an error if `rhs` is zero.
+    #[inline(always)]
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn try_rem(self, rhs: Self) -> crate::Result<Self> {
+        if rhs.value == 0 {
+            return Err(DecimalError::DivisionByZero);
+        }
+        match self.checked_rem(rhs) {
+            Some(result) => Ok(result),
+            None => Err(DecimalError::Overflow),
+        }
+    }
+
+    /// Returns `true` if `self` is an exact integer multiple of `rhs`.
+    ///
+    /// By convention `x.is_multiple_of(ZERO)` is `true` only when `x` is zero.
+    #[inline(always)]
+    pub const fn is_multiple_of(self, rhs: Self) -> bool {
+        if rhs.value == 0 {
+            self.value == 0
+        } else {
+            self.value % rhs.value == 0
+        }
+    }
+
+    /// Returns the integer quotient and decimal remainder of `self / rhs`.
+    ///
+    /// Returns `None` if `rhs` is zero. The results satisfy the identity
+    /// `self == rhs.mul_i128(q).unwrap() + r`, where `q` is the truncated integer
+    /// quotient and `r` is the remainder (`self % rhs`).
+    #[inline(always)]
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn div_rem(self, rhs: Self) -> Option<(i128, Self)> {
+        if rhs.value == 0 {
+            return None;
+        }
+        match (
+            self.value.checked_div(rhs.value),
+            self.value.checked_rem(rhs.value),
+        ) {
+            (Some(q), Some(r)) => Some((q, Self { value: r })),
+            _ => None,
         }
     }
 }
@@ -2295,6 +2363,18 @@ impl Div for D96 {
     }
 }
 
+impl Rem for D96 {
+    type Output = Self;
+
+    /// Remainder. Panics if `rhs` is zero (like integer `%`).
+    #[inline(always)]
+    fn rem(self, rhs: Self) -> Self::Output {
+        Self {
+            value: self.value % rhs.value,
+        }
+    }
+}
+
 impl Neg for D96 {
     type Output = Self;
 
@@ -2329,6 +2409,13 @@ impl DivAssign for D96 {
     #[inline(always)]
     fn div_assign(&mut self, rhs: Self) {
         *self = *self / rhs;
+    }
+}
+
+impl RemAssign for D96 {
+    #[inline(always)]
+    fn rem_assign(&mut self, rhs: Self) {
+        *self = *self % rhs;
     }
 }
 

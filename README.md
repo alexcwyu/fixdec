@@ -159,11 +159,17 @@ D64::with_scale(12345, 2)?  // 123.45 (mantissa=12345, scale=2)
 ### Arithmetic Operations
 
 ```rust
-// Standard operators (panic on overflow)
+// Standard operators (panic on overflow / zero divisor)
 let z = x + y;
 let z = x - y;
 let z = x * y;
 let z = x / y;
+let z = x % y;  // remainder: 10.5 % 3 == 1.5 (exact; sign follows dividend)
+
+// Remainder helpers
+x.checked_rem(y)      // None if y is zero
+x.is_multiple_of(y)   // true if x is an exact multiple of y
+x.div_rem(y)          // Some((integer_quotient, remainder)) or None
 
 // Checked (returns Option)
 x.checked_add(y)?
