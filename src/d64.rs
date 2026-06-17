@@ -2398,6 +2398,217 @@ unsafe impl bytemuck::Zeroable for D64 {}
 unsafe impl bytemuck::Pod for D64 {}
 
 // ============================================================================
+// num-traits Integration
+// ============================================================================
+//
+// All methods delegate to the inherent `D64` API. Inherent associated
+// functions take precedence over trait ones, so `D64::checked_add(...)` /
+// `Self::from_i64(...)` always resolve to the inherent versions (never the
+// trait method being defined). Only base-10 `Num::from_str_radix` is supported;
+// `Float`/`Real`/`Integer` are intentionally NOT implemented (D64 is not a
+// field and has no fractional reciprocal closure).
+
+#[cfg(feature = "num-traits")]
+impl num_traits::Zero for D64 {
+    #[inline]
+    fn zero() -> Self {
+        Self::ZERO
+    }
+
+    #[inline]
+    fn is_zero(&self) -> bool {
+        self.value == 0
+    }
+}
+
+#[cfg(feature = "num-traits")]
+impl num_traits::One for D64 {
+    #[inline]
+    fn one() -> Self {
+        Self::ONE
+    }
+
+    #[inline]
+    fn is_one(&self) -> bool {
+        self.value == Self::SCALE
+    }
+}
+
+#[cfg(feature = "num-traits")]
+impl num_traits::Bounded for D64 {
+    #[inline]
+    fn min_value() -> Self {
+        Self::MIN
+    }
+
+    #[inline]
+    fn max_value() -> Self {
+        Self::MAX
+    }
+}
+
+#[cfg(feature = "num-traits")]
+impl num_traits::Signed for D64 {
+    #[inline]
+    fn abs(&self) -> Self {
+        D64::abs(*self)
+    }
+
+    /// Positive difference: `self - other` when `self > other`, else `ZERO`.
+    #[inline]
+    fn abs_sub(&self, other: &Self) -> Self {
+        if *self <= *other {
+            Self::ZERO
+        } else {
+            *self - *other
+        }
+    }
+
+    /// Sign as a decimal value (`ONE`, `-ONE`, or `ZERO`) — not an `i32`.
+    #[inline]
+    fn signum(&self) -> Self {
+        if self.value > 0 {
+            Self::ONE
+        } else if self.value < 0 {
+            -Self::ONE
+        } else {
+            Self::ZERO
+        }
+    }
+
+    #[inline]
+    fn is_positive(&self) -> bool {
+        self.value > 0
+    }
+
+    #[inline]
+    fn is_negative(&self) -> bool {
+        self.value < 0
+    }
+}
+
+#[cfg(feature = "num-traits")]
+impl num_traits::Num for D64 {
+    type FromStrRadixErr = DecimalError;
+
+    /// Parses a base-10 decimal string via [`D64::from_str_exact`]. Only
+    /// `radix == 10` is supported; any other radix returns
+    /// [`DecimalError::InvalidFormat`].
+    #[inline]
+    fn from_str_radix(str: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
+        if radix == 10 {
+            Self::from_str_exact(str)
+        } else {
+            Err(DecimalError::InvalidFormat)
+        }
+    }
+}
+
+#[cfg(feature = "num-traits")]
+impl num_traits::CheckedAdd for D64 {
+    #[inline]
+    fn checked_add(&self, v: &Self) -> Option<Self> {
+        D64::checked_add(*self, *v)
+    }
+}
+
+#[cfg(feature = "num-traits")]
+impl num_traits::CheckedSub for D64 {
+    #[inline]
+    fn checked_sub(&self, v: &Self) -> Option<Self> {
+        D64::checked_sub(*self, *v)
+    }
+}
+
+#[cfg(feature = "num-traits")]
+impl num_traits::CheckedMul for D64 {
+    #[inline]
+    fn checked_mul(&self, v: &Self) -> Option<Self> {
+        D64::checked_mul(*self, *v)
+    }
+}
+
+#[cfg(feature = "num-traits")]
+impl num_traits::CheckedDiv for D64 {
+    #[inline]
+    fn checked_div(&self, v: &Self) -> Option<Self> {
+        D64::checked_div(*self, *v)
+    }
+}
+
+#[cfg(feature = "num-traits")]
+impl num_traits::Saturating for D64 {
+    #[inline]
+    fn saturating_add(self, v: Self) -> Self {
+        D64::saturating_add(self, v)
+    }
+
+    #[inline]
+    fn saturating_sub(self, v: Self) -> Self {
+        D64::saturating_sub(self, v)
+    }
+}
+
+#[cfg(feature = "num-traits")]
+impl num_traits::FromPrimitive for D64 {
+    #[inline]
+    fn from_i64(n: i64) -> Option<Self> {
+        Self::from_i64(n)
+    }
+
+    #[inline]
+    fn from_u64(n: u64) -> Option<Self> {
+        Self::from_u64(n)
+    }
+
+    #[inline]
+    fn from_f64(n: f64) -> Option<Self> {
+        Self::from_f64(n)
+    }
+}
+
+#[cfg(feature = "num-traits")]
+impl num_traits::ToPrimitive for D64 {
+    /// Truncates toward zero to the integer part.
+    #[inline]
+    fn to_i64(&self) -> Option<i64> {
+        Some(D64::to_i64(*self))
+    }
+
+    /// Truncates toward zero; negative values return `None`.
+    #[inline]
+    fn to_u64(&self) -> Option<u64> {
+        let truncated = D64::to_i64(*self);
+        if truncated < 0 {
+            None
+        } else {
+            Some(truncated as u64)
+        }
+    }
+
+    #[inline]
+    fn to_f64(&self) -> Option<f64> {
+        Some(D64::to_f64(*self))
+    }
+}
+
+/// Multiplicative inverse `1 / self`.
+///
+/// # Panics
+/// Panics if `self` is zero. Unlike floating point, `D64` has no infinity, so
+/// there is no value to return. Use [`D64::recip`] for a non-panicking
+/// `Option` result.
+#[cfg(feature = "num-traits")]
+impl num_traits::Inv for D64 {
+    type Output = Self;
+
+    #[inline]
+    fn inv(self) -> Self {
+        self.recip().expect("Inv::inv called on zero D64")
+    }
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 

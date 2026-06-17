@@ -132,6 +132,7 @@ fixdec = { version = "0.1", features = ["serde"] }
 | `serde` | Enable Serde serialization (requires `alloc`) |
 | `bytemuck` | `Pod`/`Zeroable` impls for zero-copy byte reinterpretation (`no_std`) |
 | `zerocopy` | `FromBytes`/`IntoBytes`/`Immutable`/`KnownLayout` derives (`no_std`) |
+| `num-traits` | `Zero`/`One`/`Bounded`/`Signed`/`Num`/`Checked*`/`Saturating`/`From`/`ToPrimitive`/`Inv` impls (`no_std`) |
 | `full` | Enable all features |
 
 ### Zero-copy (bytemuck / zerocopy)
@@ -151,6 +152,32 @@ use zerocopy::{FromBytes, IntoBytes};
 let bytes = price_slice.as_bytes();
 let back  = <[D64]>::ref_from_bytes(bytes).unwrap();
 ```
+
+### Generic numerics (num-traits)
+
+With the `num-traits` feature, `D64` and `D96` implement the standard
+[`num-traits`](https://docs.rs/num-traits) abstractions, so they drop into
+generic numeric code (`Zero`, `One`, `Bounded`, `Signed`, `Num`, `CheckedAdd`/
+`CheckedSub`/`CheckedMul`/`CheckedDiv`, `Saturating`, `FromPrimitive`,
+`ToPrimitive`, and `Inv`):
+
+```rust
+// with features = ["num-traits"]
+use num_traits::{Zero, Signed};
+
+fn sum<T: Zero + Copy>(xs: &[T]) -> T {
+    xs.iter().fold(T::zero(), |acc, &x| acc + x)
+}
+
+let total = sum(&[D64::from_i32(1), D64::from_i32(2), D64::from_i32(3)]);
+assert_eq!(total, D64::from_i32(6));
+assert_eq!(Signed::signum(&D64::from_i32(-5)), -D64::ONE); // sign as a decimal
+```
+
+`Num::from_str_radix` only accepts `radix == 10` (any other radix returns
+`DecimalError::InvalidFormat`), and `Inv::inv` panics on zero — use
+[`recip`](https://docs.rs) for a non-panicking `Option`. `Float`/`Real`/
+`Integer` are intentionally not implemented.
 
 ## API Overview
 
