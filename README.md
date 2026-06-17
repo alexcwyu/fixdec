@@ -130,7 +130,27 @@ fixdec = { version = "0.1", features = ["serde"] }
 | `alloc` | Enable `Vec` and `String` support |
 | `std` | Enable standard library and `Error` trait |
 | `serde` | Enable Serde serialization (requires `alloc`) |
+| `bytemuck` | `Pod`/`Zeroable` impls for zero-copy byte reinterpretation (`no_std`) |
+| `zerocopy` | `FromBytes`/`IntoBytes`/`Immutable`/`KnownLayout` derives (`no_std`) |
 | `full` | Enable all features |
+
+### Zero-copy (bytemuck / zerocopy)
+
+Both `D64` and `D96` are `#[repr(transparent)]` plain-old-data, so with the
+`bytemuck` or `zerocopy` feature you can reinterpret raw byte buffers as decimals
+with **no parsing and no allocation** — ideal for binary market-data feeds and
+memory-mapped tick stores:
+
+```rust
+// with features = ["bytemuck"]
+let prices: &[D64] = bytemuck::cast_slice(&packet_bytes);  // zero copy
+let bytes:  &[u8]  = bytemuck::cast_slice(&price_slice);
+
+// with features = ["zerocopy"]
+use zerocopy::{FromBytes, IntoBytes};
+let bytes = price_slice.as_bytes();
+let back  = <[D64]>::ref_from_bytes(bytes).unwrap();
+```
 
 ## API Overview
 

@@ -15,6 +15,15 @@ use crate::{D96, DecimalError};
 /// Range: ±92,233,720,368.54775807
 /// Precision: 0.00000001
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(
+    feature = "zerocopy",
+    derive(
+        zerocopy::FromBytes,
+        zerocopy::IntoBytes,
+        zerocopy::Immutable,
+        zerocopy::KnownLayout
+    )
+)]
 #[repr(transparent)]
 pub struct D64 {
     value: i64,
@@ -2374,6 +2383,19 @@ impl<'de> Deserialize<'de> for D64 {
         }
     }
 }
+
+// ============================================================================
+// bytemuck Pod / Zeroable (zero-copy reinterpretation)
+// ============================================================================
+
+// SAFETY: `D64` is `#[repr(transparent)]` over `i64` (itself `Pod`), so it has
+// identical layout with no padding bytes, and every bit pattern is a valid
+// `D64` (`from_raw` accepts any `i64`). The all-zero bit pattern is `D64::ZERO`,
+// so `Zeroable` holds as well.
+#[cfg(feature = "bytemuck")]
+unsafe impl bytemuck::Zeroable for D64 {}
+#[cfg(feature = "bytemuck")]
+unsafe impl bytemuck::Pod for D64 {}
 
 // ============================================================================
 // Helper Functions
