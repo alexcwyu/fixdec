@@ -63,8 +63,8 @@ fn main() {
         bench("  D96  -> Decimal (into_pyobject)", || {
             black_box(black_box(d96).into_pyobject(py).unwrap());
         });
-        bench("  rust_decimal -> Decimal (manual via str)", || {
-            black_box(py_decimal(py, &black_box(rd).to_string()));
+        bench("  rust_decimal -> Decimal (pyo3 native)", || {
+            black_box(black_box(rd).into_pyobject(py).unwrap());
         });
 
         println!("\nPython -> Rust (extract):");
@@ -83,13 +83,8 @@ fn main() {
         bench("  Decimal -> D96 (extract)", || {
             black_box(black_box(&py_dec).extract::<D96>().unwrap());
         });
-        bench("  Decimal -> rust_decimal (manual via str)", || {
-            let s: String = black_box(&py_dec)
-                .call_method1("__format__", ("f",))
-                .unwrap()
-                .extract()
-                .unwrap();
-            black_box(RustDecimal::from_str(&s).unwrap());
+        bench("  Decimal -> rust_decimal (pyo3 native)", || {
+            black_box(black_box(&py_dec).extract::<RustDecimal>().unwrap());
         });
 
         println!("\nRound trip:");

@@ -44,10 +44,19 @@ fn to_py_decimal<'py>(py: Python<'py>, s: &str) -> PyResult<Bound<'py, PyAny>> {
 /// `"0.0000001"` instead, so every representable value round-trips. Floats and
 /// ints are handled by the callers before reaching here.
 fn fixed_point_string(ob: &Bound<'_, PyAny>) -> PyResult<String> {
-    let as_decimal = decimal_type(ob.py())?.call1((ob,))?;
-    as_decimal
-        .call_method1("__format__", ("f",))?
-        .extract::<String>()
+    let decimal = decimal_type(ob.py())?;
+    if ob.is_instance(decimal.as_any())? {
+        // Fast path: already a `Decimal`, so format it directly and skip the
+        // `Decimal(ob)` re-wrap (the common case for Decimal arguments).
+        ob.call_method1("__format__", ("f",))?.extract::<String>()
+    } else {
+        // `str` (or anything Decimal-constructible): build a `Decimal` first so
+        // the value is parsed and de-scientific-ified, then format it.
+        decimal
+            .call1((ob,))?
+            .call_method1("__format__", ("f",))?
+            .extract::<String>()
+    }
 }
 
 // ---------------------------------------------------------------------------

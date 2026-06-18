@@ -59,10 +59,11 @@ num-traits = { version = "0.2", default-features = false }
 fixed = { version = "1.31", features = ["std"] }
 fpdec = "0.14.1"
 bigdecimal = "0.4.10"
-# auto-initialize lets the pyo3 interop tests start an embedded interpreter.
-# default-features = false mirrors the optional dependency so tests exercise the
-# same minimal feature set the library actually enables.
-pyo3 = { version = "0.26", default-features = false, features = ["auto-initialize"] }
+# auto-initialize lets the pyo3 interop tests start an embedded interpreter;
+# rust_decimal enables PyO3's native Decimal <-> rust_decimal::Decimal conversion
+# (used by examples/bench_pyo3.rs for an apples-to-apples comparison).
+# default-features = false mirrors the optional dependency.
+pyo3 = { version = "0.26", default-features = false, features = ["auto-initialize", "rust_decimal"] }
 
 [profile.bench]
 opt-level = 3           # Maximum optimizations (default)
