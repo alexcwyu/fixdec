@@ -2020,11 +2020,20 @@ impl D96 {
                 return Err(DecimalError::InvalidFormat);
             }
 
+            // Trailing zeros are insignificant: "1.230000000000000" is exactly
+            // 1.23, not precision loss. Trim them before the precision check so
+            // only a SIGNIFICANT digit past 12 dp is rejected.
+            let mut frac_end = frac_bytes.len();
+            while frac_end > 0 && frac_bytes[frac_end - 1] == b'0' {
+                frac_end -= 1;
+            }
+            let frac_bytes = &frac_bytes[..frac_end];
+
             if frac_bytes.len() > Self::DECIMALS as usize {
                 return Err(DecimalError::PrecisionLoss);
             }
 
-            // Parse the fractional digits
+            // Parse the fractional digits (empty after trimming -> 0)
             let frac_digits = parse_integer_swar(frac_bytes)?;
 
             // Scale to full precision

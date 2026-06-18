@@ -1683,6 +1683,15 @@ impl D64 {
             }
 
             let frac_slice = &bytes[frac_start..];
+
+            // Trailing zeros are insignificant: "1.230000000" is exactly 1.23,
+            // not precision loss. Trim them before the precision check so only a
+            // SIGNIFICANT digit past 8 dp is rejected.
+            let mut frac_end = frac_slice.len();
+            while frac_end > 0 && frac_slice[frac_end - 1] == b'0' {
+                frac_end -= 1;
+            }
+            let frac_slice = &frac_slice[..frac_end];
             let frac_len = frac_slice.len();
 
             if frac_len > Self::DECIMALS as usize {

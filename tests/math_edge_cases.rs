@@ -274,6 +274,33 @@ fn from_f64_matches_std_round_oracle() {
     }
 }
 
+// ===========================================================================
+// from_str: trailing fractional zeros are insignificant, not precision loss.
+// "1.230000000" is exactly 1.23 and must parse; only a SIGNIFICANT digit past
+// the type's precision is real precision loss.
+// ===========================================================================
+
+#[test]
+fn d64_from_str_trims_trailing_fractional_zeros() {
+    assert_eq!(D64::from_str("1.230000000").unwrap(), d64("1.23")); // 9 fractional digits, value 1.23
+    assert_eq!(D64::from_str("100.500000000").unwrap(), d64("100.5"));
+    assert_eq!(D64::from_str("0.000000000").unwrap(), D64::ZERO);
+    assert_eq!(D64::from_str("-7.50000000000").unwrap(), d64("-7.5"));
+    assert_eq!(D64::from_str("5.00").unwrap(), d64("5"));
+    // genuine precision loss (significant 9th digit) still rejected
+    assert!(D64::from_str("1.000000001").is_err());
+    assert!(D64::from_str("0.123456789").is_err());
+}
+
+#[test]
+fn d96_from_str_trims_trailing_fractional_zeros() {
+    assert_eq!(D96::from_str("1.230000000000000").unwrap(), d96("1.23")); // 15 fractional digits
+    assert_eq!(D96::from_str("0.000000000000").unwrap(), D96::ZERO);
+    assert_eq!(D96::from_str("-7.5000000000000").unwrap(), d96("-7.5"));
+    // genuine 13th significant digit still rejected
+    assert!(D96::from_str("1.0000000000001").is_err());
+}
+
 #[test]
 fn d64_signum_abs_consistency() {
     assert_eq!(d64("5").signum(), 1);
