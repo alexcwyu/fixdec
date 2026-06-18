@@ -1745,22 +1745,20 @@ impl D96 {
             return None;
         }
 
-        // Check against 96-bit range: ~39.6 trillion
-        // In float terms: ±39_614_081_257_132
-        if value.abs() > 39_614_081_257_132.0 {
-            return None;
-        }
-
+        // NOTE: there is deliberately no cheap magnitude pre-guard here. A prior
+        // `value.abs() > 39_614_081_257_132.0` guard was 1000x too small (that
+        // constant is MAX.value's leading digits, not the decimal max of
+        // ~3.96e16) and wrongly rejected representable values. The `scaled`
+        // bounds plus the post-round 96-bit check below are exact.
         let scaled = value * Self::SCALE as f64;
 
-        // Check bounds more carefully
         if scaled > Self::MAX.value as f64 || scaled < Self::MIN.value as f64 {
             return None;
         }
 
         let result = scaled.round() as i128;
 
-        // CRITICAL: Final 96-bit bounds check
+        // CRITICAL: Final 96-bit bounds check (catches rounding up past MAX).
         if result > Self::MAX.value || result < Self::MIN.value {
             return None;
         }
@@ -1799,10 +1797,8 @@ impl D96 {
             return Err(DecimalError::InvalidFormat);
         }
 
-        if value.abs() > 39_614_081_257_132.0 {
-            return Err(DecimalError::Overflow);
-        }
-
+        // No 1000x-too-small magnitude pre-guard (see `from_f64`); the `scaled`
+        // and post-round 96-bit checks below are exact and sign-aware.
         let scaled = value * Self::SCALE as f64;
 
         if scaled > Self::MAX.value as f64 {
@@ -1812,9 +1808,16 @@ impl D96 {
             return Err(DecimalError::Underflow);
         }
 
-        Ok(Self {
-            value: scaled.round() as i128,
-        })
+        let result = scaled.round() as i128;
+
+        if result > Self::MAX.value {
+            return Err(DecimalError::Overflow);
+        }
+        if result < Self::MIN.value {
+            return Err(DecimalError::Underflow);
+        }
+
+        Ok(Self { value: result })
     }
 }
 

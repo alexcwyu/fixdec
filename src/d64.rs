@@ -1382,14 +1382,18 @@ impl D64 {
             return None;
         }
 
-        let scaled = value * Self::SCALE as f64;
-
-        if scaled > i64::MAX as f64 || scaled < i64::MIN as f64 {
+        // `i64::MAX as f64` rounds UP to 2^63 (one past the true max), so a guard
+        // of `> i64::MAX as f64` lets values that scale to exactly 2^63 through —
+        // they then saturate to MAX instead of being rejected. Round first, then
+        // compare against the exact ±2^63 boundary (i64::MIN == -2^63 is valid).
+        let scaled = (value * Self::SCALE as f64).round();
+        const TWO_POW_63: f64 = 9_223_372_036_854_775_808.0;
+        if scaled >= TWO_POW_63 || scaled < -TWO_POW_63 {
             return None;
         }
 
         Some(Self {
-            value: scaled.round() as i64,
+            value: scaled as i64,
         })
     }
 
@@ -1424,17 +1428,18 @@ impl D64 {
             return Err(DecimalError::InvalidFormat);
         }
 
-        let scaled = value * Self::SCALE as f64;
-
-        if scaled > i64::MAX as f64 {
+        // Round first, then bound against the exact ±2^63 boundary (see `from_f64`).
+        let scaled = (value * Self::SCALE as f64).round();
+        const TWO_POW_63: f64 = 9_223_372_036_854_775_808.0;
+        if scaled >= TWO_POW_63 {
             return Err(DecimalError::Overflow);
         }
-        if scaled < i64::MIN as f64 {
+        if scaled < -TWO_POW_63 {
             return Err(DecimalError::Underflow);
         }
 
         Ok(Self {
-            value: scaled.round() as i64,
+            value: scaled as i64,
         })
     }
 }
