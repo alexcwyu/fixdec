@@ -22,19 +22,25 @@
 
 ## Performance
 
-`fixdec` is designed for speed. Here's how it compares to `rust_decimal`:
+Each value is a single machine integer, so `fixdec`'s hot-path add/sub is on par
+with raw `f64` while staying exact in base-10. Measured with
+`cargo run --release --example bench_vs_libs` (1,000,000 ops/op, all libraries
+parsing the same operands, `black_box`-guarded). Numbers are **indicative** and
+vary by machine (these are from an Apple Silicon laptop):
 
-| Operation | D64 | rust_decimal | Speedup |
-|-----------|-----|--------------|---------|
-| Addition | 0.62 ns | 7.51 ns | **12x faster** |
-| Subtraction | 0.60 ns | 7.53 ns | **12.5x faster** |
-| Multiplication | 1.24 ns | 7.57 ns | **6x faster** |
-| Division | 3.70 ns | 21.29 ns | **5.7x faster** |
-| Square root | 102.87 ns | 750.89 ns | **7.3x faster** |
-| Power (powi) | 5.15 ns | 42.67 ns | **8.3x faster** |
-| Bincode serialize | 6.0 ns | 62.9 ns | **10.5x faster** |
+| Operation      |  D64 (8dp) | D96 (12dp) | rust_decimal | fpdec  | bigdecimal |    f64 |
+|----------------|-----------:|-----------:|-------------:|-------:|-----------:|-------:|
+| Addition       |   ~0.6 ns  |   ~0.7 ns  |     ~2.4 ns  | ~1.2ns |   ~26 ns   | ~0.6ns |
+| Subtraction    |   ~0.6 ns  |   ~0.7 ns  |     ~2.4 ns  | ~1.2ns |   ~27 ns   | ~0.6ns |
+| Multiplication |   ~1.9 ns  |   ~5.4 ns  |     ~2.4 ns  | ~2.1ns |   ~15 ns   | ~0.6ns |
+| Division       |   ~2.0 ns  |   ~8.4 ns  |     ~44 ns   | ~12 ns | ~3500 ns   | ~0.6ns |
 
-*Benchmarks run on [your system specs]. See `benches/` for details.*
+Against `rust_decimal`, **D64 is ~4× faster on add/sub and ~22× faster on
+division**. The example also benchmarks the base-2 `fixed` crate. Run it yourself
+with `cargo run --release --example bench_vs_libs`.
+
+> `f64` is shown only as the hardware speed ceiling — it is **not** decimal-exact
+> (`0.1` is inexact) and must never be used for money or prices.
 
 ## Types
 
@@ -47,7 +53,7 @@
 ### `D96` - Cryptocurrency
 - **Storage**: 128-bit (16 bytes, but only 96 bits used)
 - **Precision**: 12 decimal places (0.000000000001)
-- **Range**: ±39,614,081,257,132.168796771975 (±39 trillion)
+- **Range**: ±39,614,081,257,132,168.796771975167 (±39.6 quadrillion)
 - **Use cases**: Cryptocurrency pricing, DeFi protocols, gas calculations, extreme price ranges
 
 ## Quick Start
@@ -76,8 +82,8 @@ assert_eq!(total.to_string(), "123456");
 // Checked arithmetic
 let result = price.checked_mul(quantity).ok_or("overflow")?;
 
-// Financial operations
-let fee = total.percent_of(D64::from_str("0.1")?)?; // 0.1% fee
+// Financial operations (percent_of returns Option)
+let fee = total.percent_of(D64::from_str("0.1")?).ok_or("overflow")?; // 0.1% fee
 ```
 
 ### Cryptocurrency Example
@@ -200,7 +206,8 @@ D64::from_f64(123.45)?      // May lose precision
 D64::from_raw(12345000000)  // 123.45 in raw form
 
 // From mantissa and scale (rust_decimal compatibility)
-D64::with_scale(12345, 2)?  // 123.45 (mantissa=12345, scale=2)
+D64::with_scale(12345, 2)             // 123.45 (returns Self; panics if out of range)
+D64::try_with_scale(12345, 2)         // -> Option<D64> (non-panicking)
 ```
 
 ### Arithmetic Operations
@@ -320,9 +327,14 @@ struct Trade {
     quantity: D64,
 }
 
-// JSON: uses string representation for precision
+// JSON: serializes as a string (Display trims trailing zeros).
+// With price = 1234.56 and quantity = 100:
 let json = serde_json::to_string(&trade)?;
-// {"price":"1234.56","quantity":"100.00000000"}
+// {"price":"1234.56","quantity":"100"}
+
+// Deserialize accepts BOTH quoted strings and bare JSON numbers, so payloads
+// like {"price": 1234.56, "quantity": 100} from non-fixdec producers also parse
+// (numbers are rounded to the type's precision; the canonical form is a string).
 
 // Bincode: uses raw i64 (extremely fast)
 let bytes = bincode::serialize(&trade)?;
@@ -474,7 +486,7 @@ assert_eq!(price.to_string(), "99.5");
 ## Safety and Correctness
 
 - **Overflow behavior**: All arithmetic operations have `checked`, `saturating`, and `wrapping` variants
-- **No unsafe code**: Pure safe Rust (except in tests)
+- **Minimal unsafe**: Safe Rust throughout the core; the only `unsafe` is the feature-gated `bytemuck` Pod/Zeroable impls (sound via `#[repr(transparent)]`)
 - **Extensive testing**: Property-based tests with `proptest` verify correctness against baseline implementations
 - **Banker's rounding**: IEEE 754 round-half-to-even for tie-breaking
 
