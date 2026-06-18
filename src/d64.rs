@@ -184,6 +184,73 @@ impl D64 {
         self.value
     }
 
+    /// Returns the minimal signed mantissa (coefficient) of this value.
+    ///
+    /// Trailing decimal zeros are removed, so `value == mantissa() * 10^(-scale())`.
+    /// For example `1.5` decomposes to `(mantissa 15, scale 1)`, `100` to
+    /// `(100, 0)`, and `0.00000001` to `(1, 8)`. `mantissa()` is `0` exactly when
+    /// the value is zero, and always fits `i64` (even at `MIN`, which is not
+    /// divisible by 10 and so survives trimming unchanged).
+    ///
+    /// This returns the *minimal* form and so is not a left inverse of
+    /// [`with_scale`](Self::with_scale) (`with_scale(150, 2)` is `1.5`, whose
+    /// `mantissa()` is `15`, not `150`). It does round-trip the other way:
+    /// `with_scale(v.mantissa(), v.scale()) == v` for every `v`.
+    #[inline]
+    #[must_use]
+    pub const fn mantissa(self) -> i64 {
+        let mut m = self.value;
+        let mut s = Self::DECIMALS;
+        while s > 0 && m % 10 == 0 {
+            m /= 10;
+            s -= 1;
+        }
+        m
+    }
+
+    /// Returns the number of significant fractional digits, in `0..=DECIMALS`.
+    ///
+    /// This is the `s` in `value == mantissa() * 10^(-s)`: trailing zeros are not
+    /// counted, so `1.5` has scale `1`, `100` (and every integer) has scale `0`,
+    /// and `0.00000001` has scale `8`. Pairs with [`mantissa`](Self::mantissa).
+    #[inline]
+    #[must_use]
+    pub const fn scale(self) -> u32 {
+        let mut m = self.value;
+        let mut s = Self::DECIMALS as u32;
+        while s > 0 && m % 10 == 0 {
+            m /= 10;
+            s -= 1;
+        }
+        s
+    }
+
+    /// Returns `true` if this value has no fractional part (equivalently
+    /// `scale() == 0`). `ZERO` is an integer.
+    ///
+    /// The remainder is taken against `+SCALE`, so this is total and never hits
+    /// the `i64::MIN % -1` overflow case.
+    #[inline]
+    #[must_use]
+    pub const fn is_integer(self) -> bool {
+        self.value % Self::SCALE == 0
+    }
+
+    /// Returns `self` unchanged — D64 values are always normalized.
+    ///
+    /// `D64` is `repr(transparent)` over a single `i64` at a fixed scale, so each
+    /// value has exactly one representation: `1.5` and `1.50` are the same raw
+    /// value, there is no redundant trailing-zero state to collapse, and there is
+    /// no negative zero. Normalization is therefore the identity. Provided for
+    /// API parity with `rust_decimal::Decimal::normalize` (so generic code
+    /// compiles); use [`mantissa`](Self::mantissa) / [`scale`](Self::scale) for
+    /// the minimal, already-normalized decomposition.
+    #[inline(always)]
+    #[must_use]
+    pub const fn normalize(self) -> Self {
+        self
+    }
+
     /// Creates a D64 from integer and fractional parts at compile time
     /// Example: `new(123, 45_000_000)` → 123.45
     ///
