@@ -151,3 +151,54 @@ fn d64_lossy_accepts_min() {
     let s1 = "-92233720368.54775807";
     assert_eq!(D64::from_str_lossy(s1).unwrap(), D64::from_str_exact(s1).unwrap());
 }
+
+// ===========================================================================
+// [19] D96 `{:.N}` Display must propagate the rounding carry into the integer
+// ===========================================================================
+
+#[test]
+fn d96_display_precision_carry_propagates() {
+    assert_eq!(format!("{:.1}", D96::from_str("0.95").unwrap()), "1.0");
+    assert_eq!(format!("{:.1}", D96::from_str("9.99").unwrap()), "10.0");
+    assert_eq!(format!("{:.0}", D96::from_str("0.9999999").unwrap()), "1");
+    assert_eq!(format!("{:.1}", D96::from_str("-0.96").unwrap()), "-1.0");
+    assert_eq!(format!("{:.2}", D96::from_str("0.999").unwrap()), "1.00");
+}
+
+// ===========================================================================
+// [20] D64 `{:.N}` Display must use banker's rounding (match round_dp / D96)
+// ===========================================================================
+
+#[test]
+fn d64_display_precision_uses_bankers() {
+    // Exact ties round to even, agreeing with round_dp and with D96 Display.
+    assert_eq!(format!("{:.0}", D64::from_str("2.5").unwrap()), "2");
+    assert_eq!(format!("{:.0}", D64::from_str("3.5").unwrap()), "4");
+    assert_eq!(format!("{:.2}", D64::from_str("0.125").unwrap()), "0.12");
+
+    for s in ["2.5", "0.125", "1.015", "1.005", "-2.5"] {
+        let d = D64::from_str(s).unwrap();
+        assert_eq!(
+            format!("{:.0}", d),
+            d.round_dp(0).to_string(),
+            "Display {{:.0}} vs round_dp(0) for {s}"
+        );
+        assert_eq!(
+            format!("{:.2}", d),
+            format!("{:.2}", D96::from_str(s).unwrap()),
+            "D64 vs D96 Display for {s}"
+        );
+    }
+}
+
+// ===========================================================================
+// [21] D64 and D96 must agree on `{:.N}` of zero
+// ===========================================================================
+
+#[test]
+fn d64_d96_zero_precision_agree() {
+    assert_eq!(format!("{:.2}", D64::ZERO), "0.00");
+    assert_eq!(format!("{:.2}", D64::ZERO), format!("{:.2}", D96::ZERO));
+    assert_eq!(format!("{:.0}", D64::ZERO), format!("{:.0}", D96::ZERO));
+    assert_eq!(format!("{:.5}", D64::ZERO), format!("{:.5}", D96::ZERO));
+}

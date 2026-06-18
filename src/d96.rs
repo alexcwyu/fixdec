@@ -2919,8 +2919,29 @@ impl D96 {
     #[inline]
     fn fmt_with_precision(&self, f: &mut fmt::Formatter<'_>, precision: usize) -> fmt::Result {
         let abs_value = self.value.unsigned_abs();
-        let integer_part = abs_value / Self::SCALE as u128;
-        let fractional_part = abs_value % Self::SCALE as u128;
+        let precision_capped = precision.min(Self::DECIMALS as usize);
+
+        // Round the COMBINED value to `precision_capped` fractional digits (not
+        // the fractional part in isolation) so a rounding carry out of the
+        // fractional field propagates into the integer part. Rounding only the
+        // fractional part dropped that carry (e.g. 0.95 at {:.1} -> "0.0").
+        let scale_down = Self::DECIMALS as u32 - precision_capped as u32;
+        let divisor = const_pow10_u128(scale_down as u8);
+        let scaled_value = abs_value / divisor;
+        let remainder = abs_value % divisor;
+
+        // Banker's rounding (round half to even).
+        let rounded_value = if remainder * 2 > divisor {
+            scaled_value + 1
+        } else if remainder * 2 == divisor {
+            if scaled_value % 2 == 1 { scaled_value + 1 } else { scaled_value }
+        } else {
+            scaled_value
+        };
+
+        let precision_scale = const_pow10_u128(precision_capped as u8);
+        let int_part = rounded_value / precision_scale;
+        let frac_part = rounded_value % precision_scale;
 
         let mut buffer = [0u8; 64];
         let mut pos = 0;
@@ -2932,37 +2953,18 @@ impl D96 {
         }
 
         // Integer part
-        if integer_part == 0 {
+        if int_part == 0 {
             buffer[pos] = b'0';
             pos += 1;
         } else {
-            pos += format_u128_reciprocal(integer_part, &mut buffer[pos..]);
+            pos += format_u128_reciprocal(int_part, &mut buffer[pos..]);
         }
 
-        // Fractional part with rounding
+        // Fractional part (already rounded; carry has propagated into int_part)
         if precision > 0 {
             buffer[pos] = b'.';
             pos += 1;
-
-            let precision_capped = precision.min(Self::DECIMALS as usize);
-
-            // Scale fractional part and round
-            let scale_factor = const_pow10_u128((Self::DECIMALS as usize - precision_capped) as u8);
-            let scaled = fractional_part / scale_factor;
-            let remainder = fractional_part % scale_factor;
-
-            // Round half to even
-            let rounded = if remainder * 2 > scale_factor {
-                scaled + 1
-            } else if remainder * 2 == scale_factor {
-                // Banker's rounding: round to even
-                if scaled % 2 == 1 { scaled + 1 } else { scaled }
-            } else {
-                scaled
-            };
-
-            // Format the rounded fractional part with exactly precision_capped digits
-            pos += format_fractional_fixed_width(rounded, precision_capped, &mut buffer[pos..]);
+            pos += format_fractional_fixed_width(frac_part, precision_capped, &mut buffer[pos..]);
         }
 
         // The buffer is always ASCII (digits, '.', '-'), so this never errors.

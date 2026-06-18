@@ -2066,11 +2066,6 @@ impl D64 {
         f: &mut core::fmt::Formatter<'_>,
         precision: usize,
     ) -> core::fmt::Result {
-        // Special case: zero with any precision should just be "0"
-        if self.value == 0 {
-            return f.write_str("0");
-        }
-
         if precision >= Self::DECIMALS as usize {
             // Just display what we have
             if self.value < 0 {
@@ -2092,8 +2087,13 @@ impl D64 {
         let scaled_value = abs_value / divisor;
         let remainder = abs_value % divisor;
 
-        let rounded_value = if remainder >= (divisor + 1) / 2 {
+        // Banker's rounding (round half to even), matching round_dp and D96
+        // Display. Previously this rounded half away from zero, disagreeing with
+        // the crate's documented rounding mode on exact ties.
+        let rounded_value = if remainder * 2 > divisor {
             scaled_value + 1
+        } else if remainder * 2 == divisor {
+            if scaled_value % 2 == 1 { scaled_value + 1 } else { scaled_value }
         } else {
             scaled_value
         };
@@ -4430,7 +4430,9 @@ mod display_tests {
     #[test]
     fn test_display_zero() {
         assert_eq!(format!("{}", D64::ZERO), "0");
-        assert_eq!(format!("{:.2}", D64::ZERO), "0");
+        // `{:.N}` honors precision for zero (matches D96), so it pads.
+        assert_eq!(format!("{:.2}", D64::ZERO), "0.00");
+        assert_eq!(format!("{:.0}", D64::ZERO), "0");
     }
 }
 
