@@ -5600,6 +5600,79 @@ mod d96_mul_property_tests {
             prop_assert_eq!(D96::from_raw(a as i128).to_i128(), (a as i128) / D96::SCALE);
         }
     }
+
+    /// Maps an arbitrary i128 into the legal 96-bit raw range [MIN, MAX].
+    fn clamp_raw_96(v: i128) -> i128 {
+        const TWO_POW_96: i128 = 1i128 << 96;
+        let mut r = v % TWO_POW_96;
+        if r > D96::MAX.to_raw() {
+            r -= TWO_POW_96;
+        } else if r < D96::MIN.to_raw() {
+            r += TWO_POW_96;
+        }
+        r
+    }
+
+    proptest! {
+        // The proptests above cap raw operands at i64 range, so |operand| is
+        // always < 2^64 = FAST_THRESHOLD and the 192-bit SLOW path (plus its
+        // signed-bound logic and the MIN boundary) is never exercised. These
+        // generators span the full 96-bit raw range so they reach the slow path
+        // and signed-MIN, which is where the off-by-one/wrap bugs lived.
+
+        /// Force the slow path with an exact i128 oracle: |a| spans the full
+        /// 96-bit range (so |a| can exceed 2^64), while |b| stays small enough
+        /// that `a * b` still fits i128 (|a| <= 2^95, |b| <= 2^31 -> < 2^127).
+        #[test]
+        fn prop_mul_slow_path_matches_oracle(
+            a_seed in any::<i128>(),
+            b in -(1i128 << 31)..=(1i128 << 31),
+        ) {
+            let a = clamp_raw_96(a_seed);
+            let product = a * b;
+            let quotient = product / D96::SCALE; // truncates toward zero
+            let expect = if quotient > D96::MAX.to_raw() || quotient < D96::MIN.to_raw() {
+                None
+            } else {
+                Some(quotient)
+            };
+            let got = D96::from_raw(a).checked_mul(D96::from_raw(b)).map(D96::to_raw);
+            prop_assert_eq!(got, expect, "a={} b={}", a, b);
+        }
+
+        /// Multiplicative identity must hold for EVERY representable raw value,
+        /// including those >= 2^64 (slow path) and MIN (= -2^95).
+        #[test]
+        fn prop_mul_identity_full_range(a_seed in any::<i128>()) {
+            let d = D96::from_raw(clamp_raw_96(a_seed));
+            prop_assert_eq!(d.checked_mul(D96::ONE), Some(d));
+            prop_assert_eq!(D96::ONE.checked_mul(d), Some(d));
+        }
+
+        /// Division by one must round-trip for every representable raw value,
+        /// exercising the divide slow path and the MIN result boundary.
+        #[test]
+        fn prop_div_by_one_full_range(a_seed in any::<i128>()) {
+            let d = D96::from_raw(clamp_raw_96(a_seed));
+            prop_assert_eq!(d.checked_div(D96::ONE), Some(d));
+        }
+
+        /// Every wrapping multiply/divide must stay inside the 96-bit range.
+        #[test]
+        fn prop_wrapping_muldiv_stays_in_range(
+            a_seed in any::<i128>(),
+            b_seed in any::<i128>(),
+        ) {
+            let a = D96::from_raw(clamp_raw_96(a_seed));
+            let b = D96::from_raw(clamp_raw_96(b_seed));
+            let m = a.wrapping_mul(b).to_raw();
+            prop_assert!(D96::from_raw_checked(m).is_some(), "wrapping_mul out of range: {}", m);
+            if b.to_raw() != 0 {
+                let q = a.wrapping_div(b).to_raw();
+                prop_assert!(D96::from_raw_checked(q).is_some(), "wrapping_div out of range: {}", q);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
