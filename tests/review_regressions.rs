@@ -293,13 +293,21 @@ fn with_scale_lossy_matches_oracle_fuzz() {
         let got = D64::try_with_scale_lossy(m64, scale).unwrap().to_raw();
         assert_eq!(got as i128, expect, "D64 mantissa={m64} scale={scale}");
 
-        // D96: mantissa across a wide i128, scale in (12, 45].
+        // D96: mantissa across a wide i128, scale in (12, 45]. The rounded
+        // result must equal the oracle AND respect the 96-bit range: when the
+        // oracle lands outside it, try_with_scale_lossy must report None.
         let m128 = ((next() as i128) << 64) | (next() as i128);
         let k2 = (next() % 33) as u32 + 1; // 1..=33
         let scale2 = 12 + k2;
         let expect2 = oracle_round_div(m128, k2);
-        let got2 = D96::try_with_scale_lossy(m128, scale2).unwrap().to_raw();
-        assert_eq!(got2, expect2, "D96 mantissa={m128} scale={scale2}");
+        let in_range = expect2 >= D96::MIN.to_raw() && expect2 <= D96::MAX.to_raw();
+        match D96::try_with_scale_lossy(m128, scale2) {
+            Some(v) => {
+                assert!(in_range, "D96 accepted out-of-range oracle {expect2}");
+                assert_eq!(v.to_raw(), expect2, "D96 mantissa={m128} scale={scale2}");
+            }
+            None => assert!(!in_range, "D96 rejected in-range oracle {expect2}"),
+        }
     }
 }
 

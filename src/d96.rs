@@ -394,27 +394,17 @@ impl D96 {
     /// Panics if the resulting value (after rounding) is out of bounds for D96.
     #[inline]
     pub fn with_scale_lossy(mantissa: i128, scale: u32) -> Self {
-        if scale <= Self::DECIMALS as u32 {
-            // Fast path: no rounding needed
-            let scale_diff = Self::DECIMALS as u32 - scale;
-
-            if scale_diff == 0 {
-                Self { value: mantissa }
-            } else {
-                let multiplier = const_pow10_i128(scale_diff as u8);
-                match mantissa.checked_mul(multiplier) {
-                    Some(value) => Self { value },
-                    None => panic!("overflow: mantissa * 10^{} exceeds D96 range", scale_diff),
-                }
-            }
-        } else {
-            // Need to round: divide by 10^(scale - 12) with banker's rounding,
-            // applied to the FULL dropped fraction in a single i128 step.
-            let scale_diff = scale - Self::DECIMALS as u32;
-            Self {
-                value: round_div_pow10_i128(mantissa, scale_diff),
-            }
+        match Self::try_with_scale_lossy(mantissa, scale) {
+            Some(value) => value,
+            None => panic!("overflow: scaled mantissa exceeds D96 96-bit range"),
         }
+    }
+
+    /// Returns `true` if `value` is a legal raw D96 (within the 96-bit range).
+    #[inline(always)]
+    #[allow(clippy::manual_range_contains)] // const fn: RangeInclusive::contains isn't const
+    const fn is_in_96bit(value: i128) -> bool {
+        value >= Self::MIN_96BIT && value <= Self::MAX_96BIT
     }
 
     /// Creates a D96 from a mantissa and scale, rounding if necessary, returns None on error.
@@ -427,21 +417,31 @@ impl D96 {
             let scale_diff = Self::DECIMALS as u32 - scale;
 
             if scale_diff == 0 {
-                Some(Self { value: mantissa })
+                // The mantissa is stored verbatim, so it must already be a legal
+                // 96-bit value.
+                if Self::is_in_96bit(mantissa) {
+                    Some(Self { value: mantissa })
+                } else {
+                    None
+                }
             } else {
                 let multiplier = const_pow10_i128(scale_diff as u8);
                 match mantissa.checked_mul(multiplier) {
-                    Some(value) => Some(Self { value }),
-                    None => None,
+                    Some(value) if Self::is_in_96bit(value) => Some(Self { value }),
+                    _ => None,
                 }
             }
         } else {
             // Need to round: divide by 10^(scale - 12) with banker's rounding,
-            // applied to the FULL dropped fraction in a single i128 step.
+            // applied to the FULL dropped fraction in a single i128 step. The
+            // rounded result must still fit the 96-bit range.
             let scale_diff = scale - Self::DECIMALS as u32;
-            Some(Self {
-                value: round_div_pow10_i128(mantissa, scale_diff),
-            })
+            let value = round_div_pow10_i128(mantissa, scale_diff);
+            if Self::is_in_96bit(value) {
+                Some(Self { value })
+            } else {
+                None
+            }
         }
     }
 }

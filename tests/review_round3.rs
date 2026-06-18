@@ -202,3 +202,43 @@ fn d64_d96_zero_precision_agree() {
     assert_eq!(format!("{:.0}", D64::ZERO), format!("{:.0}", D96::ZERO));
     assert_eq!(format!("{:.5}", D64::ZERO), format!("{:.5}", D96::ZERO));
 }
+
+// ===========================================================================
+// [13] D96 lossy with_scale constructors must enforce the 96-bit range
+// ===========================================================================
+
+#[test]
+fn d96_try_with_scale_lossy_range_checks() {
+    let over = D96::MAX.to_raw() + 1000;
+    // scale_diff == 0 store path
+    assert_eq!(D96::try_with_scale_lossy(over, 12), None);
+    // fast multiply path (scale < 12): MAX * 10 overflows the 96-bit range
+    assert_eq!(D96::try_with_scale_lossy(D96::MAX.to_raw(), 11), None);
+    // slow rounding path (scale > 12): 1e35 / 10 = 1e34 >> MAX
+    let huge: i128 = 100_000_000_000_000_000_000_000_000_000_000_000; // 1e35
+    assert_eq!(D96::try_with_scale_lossy(huge, 13), None);
+    // representable values still succeed
+    assert_eq!(
+        D96::try_with_scale_lossy(12345, 2),
+        Some(D96::from_str("123.45").unwrap())
+    );
+}
+
+#[test]
+#[should_panic]
+fn d96_with_scale_lossy_store_path_panics_on_overflow() {
+    let _ = D96::with_scale_lossy(D96::MAX.to_raw() + 1000, 12);
+}
+
+#[test]
+#[should_panic]
+fn d96_with_scale_lossy_fast_path_panics_on_overflow() {
+    let _ = D96::with_scale_lossy(D96::MAX.to_raw(), 11);
+}
+
+#[test]
+#[should_panic]
+fn d96_with_scale_lossy_slow_path_panics_on_overflow() {
+    let huge: i128 = 100_000_000_000_000_000_000_000_000_000_000_000; // 1e35
+    let _ = D96::with_scale_lossy(huge, 13);
+}
