@@ -48,6 +48,7 @@ extern crate alloc;
 
 mod d64;
 mod d96;
+mod internal;
 
 #[cfg(feature = "pyo3")]
 mod pyo3_conv;

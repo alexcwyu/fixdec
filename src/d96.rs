@@ -8,6 +8,9 @@ use core::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
+use crate::internal::{
+    banker_round_i128, pow10_i128, pow10_u128, round_div_pow10_i128, round_half_away_f64,
+};
 use crate::{D64, DecimalError};
 
 /// 96-bit fixed-point decimal with 12 decimal places of precision.
@@ -342,7 +345,7 @@ impl D96 {
             );
             Self { value: mantissa }
         } else {
-            let multiplier = const_pow10_i128(scale_diff as u8);
+            let multiplier = pow10_i128(scale_diff as u8);
 
             match mantissa.checked_mul(multiplier) {
                 Some(value) if (Self::MIN_96BIT..=Self::MAX_96BIT).contains(&value) => {
@@ -371,7 +374,7 @@ impl D96 {
             }
             Some(Self { value: mantissa })
         } else {
-            let multiplier = const_pow10_i128(scale_diff as u8);
+            let multiplier = pow10_i128(scale_diff as u8);
 
             match mantissa.checked_mul(multiplier) {
                 Some(value) => {
@@ -427,7 +430,7 @@ impl D96 {
                     None
                 }
             } else {
-                let multiplier = const_pow10_i128(scale_diff as u8);
+                let multiplier = pow10_i128(scale_diff as u8);
                 match mantissa.checked_mul(multiplier) {
                     Some(value) if Self::is_in_96bit(value) => Some(Self { value }),
                     _ => None,
@@ -1398,7 +1401,7 @@ impl D96 {
         let remainder = self.value % Self::SCALE;
         let half = Self::SCALE / 2;
 
-        let rounded_quotient = banker_round(quotient, remainder, half);
+        let rounded_quotient = banker_round_i128(quotient, remainder, half);
 
         Self {
             value: Self::clamp_to_96(rounded_quotient * Self::SCALE),
@@ -1419,13 +1422,13 @@ impl D96 {
         }
 
         let scale_reduction = Self::DECIMALS - decimal_places;
-        let rounding_factor = const_pow10_i128(scale_reduction);
+        let rounding_factor = pow10_i128(scale_reduction);
 
         let quotient = self.value / rounding_factor;
         let remainder = self.value % rounding_factor;
         let half = rounding_factor / 2;
 
-        let rounded = banker_round(quotient, remainder, half);
+        let rounded = banker_round_i128(quotient, remainder, half);
 
         Self {
             value: Self::clamp_to_96(rounded * rounding_factor),
@@ -1623,7 +1626,7 @@ impl D96 {
     pub const fn to_d64_round(self) -> crate::Result<D64> {
         let quotient = self.value / 10_000;
         let remainder = self.value % 10_000;
-        let rounded = banker_round(quotient, remainder, 5_000);
+        let rounded = banker_round_i128(quotient, remainder, 5_000);
         if rounded > i64::MAX as i128 {
             Err(DecimalError::Overflow)
         } else if rounded < i64::MIN as i128 {
@@ -1675,7 +1678,7 @@ impl D96 {
             // Scale the mantissa up to 12 dp. A None here means the magnitude is
             // far out of range; classify by sign so a huge negative reports
             // Underflow rather than Overflow (zero cannot reach this arm).
-            match mantissa.checked_mul(10i128.pow(dp - scale)) {
+            match mantissa.checked_mul(pow10_i128((dp - scale) as u8)) {
                 Some(v) => v,
                 None => {
                     return Err(if mantissa < 0 {
@@ -1687,7 +1690,7 @@ impl D96 {
             }
         } else {
             // More than 12 dp: the dropped digits must be zero to be exact.
-            let divisor = 10i128.pow(scale - dp);
+            let divisor = pow10_i128((scale - dp) as u8);
             if mantissa % divisor != 0 {
                 return Err(DecimalError::PrecisionLoss);
             }
@@ -1713,7 +1716,7 @@ impl D96 {
         let dp = Self::DECIMALS as u32;
         let raw = if scale <= dp {
             // See `from_rust_decimal`: sign-classify an i128 overflow here.
-            match mantissa.checked_mul(10i128.pow(dp - scale)) {
+            match mantissa.checked_mul(pow10_i128((dp - scale) as u8)) {
                 Some(v) => v,
                 None => {
                     return Err(if mantissa < 0 {
@@ -1858,7 +1861,7 @@ impl D96 {
         let remainder = self.value % Self::SCALE;
         let half = Self::SCALE / 2;
 
-        banker_round(quotient, remainder, half)
+        banker_round_i128(quotient, remainder, half)
     }
 
     /// Creates a D96 from an i128, returning an error on overflow.
@@ -2073,7 +2076,7 @@ impl D96 {
 
             // Scale to full precision
             let remaining_decimals = Self::DECIMALS as usize - frac_bytes.len();
-            (frac_digits as u128) * fast_pow10(remaining_decimals as u8)
+            (frac_digits as u128) * pow10_u128(remaining_decimals as u8)
         } else {
             0
         };
@@ -2187,14 +2190,14 @@ impl D96 {
             if net > 38 {
                 return Err(DecimalError::Overflow); // 10^net exceeds i128 (m != 0)
             }
-            m.checked_mul(10i128.pow(net as u32))
+            m.checked_mul(pow10_i128(net as u8))
                 .ok_or(DecimalError::Overflow)?
         } else {
             let k = -net;
             if k > 38 {
                 return Err(DecimalError::PrecisionLoss); // |value| below one ULP, nonzero
             }
-            let div = 10i128.pow(k as u32);
+            let div = pow10_i128(k as u8);
             if m % div != 0 {
                 return Err(DecimalError::PrecisionLoss);
             }
@@ -2271,7 +2274,7 @@ impl D96 {
                 // Fast path: fits exactly, no rounding needed
                 let frac_digits = parse_integer_swar(frac_bytes)?;
                 let remaining_decimals = Self::DECIMALS as usize - frac_len;
-                (frac_digits as u128) * fast_pow10(remaining_decimals as u8)
+                (frac_digits as u128) * pow10_u128(remaining_decimals as u8)
             } else {
                 // Slow path: need to round
                 // Parse all digits we can use (DECIMALS)
@@ -2363,7 +2366,7 @@ impl D96 {
         }
 
         let scale_diff = Self::DECIMALS - decimals;
-        let multiplier = const_pow10_i128(scale_diff);
+        let multiplier = pow10_i128(scale_diff);
 
         let scaled = value
             .checked_mul(multiplier)
@@ -2435,28 +2438,6 @@ fn parse_integer_swar(bytes: &[u8]) -> crate::Result<i128> {
     }
 
     Ok(result)
-}
-
-/// Fast power of 10 computation using bit shifts where possible
-#[inline(always)]
-const fn fast_pow10(n: u8) -> u128 {
-    // For small powers, use precomputed constants
-    match n {
-        0 => 1,
-        1 => 10,
-        2 => 100,
-        3 => 1_000,
-        4 => 10_000,
-        5 => 100_000,
-        6 => 1_000_000,
-        7 => 10_000_000,
-        8 => 100_000_000,
-        9 => 1_000_000_000,
-        10 => 10_000_000_000,
-        11 => 100_000_000_000,
-        12 => 1_000_000_000_000,
-        _ => panic!("fast_pow10: exponent too large"),
-    }
 }
 
 // ============================================================================
@@ -2949,7 +2930,7 @@ impl D96 {
         // fractional field propagates into the integer part. Rounding only the
         // fractional part dropped that carry (e.g. 0.95 at {:.1} -> "0.0").
         let scale_down = Self::DECIMALS as u32 - precision_capped as u32;
-        let divisor = const_pow10_u128(scale_down as u8);
+        let divisor = pow10_u128(scale_down as u8);
         let scaled_value = abs_value / divisor;
         let remainder = abs_value % divisor;
 
@@ -2962,7 +2943,7 @@ impl D96 {
             scaled_value
         };
 
-        let precision_scale = const_pow10_u128(precision_capped as u8);
+        let precision_scale = pow10_u128(precision_capped as u8);
         let int_part = rounded_value / precision_scale;
         let frac_part = rounded_value % precision_scale;
 
@@ -3120,27 +3101,6 @@ fn format_fractional_reciprocal(frac: u128, buffer: &mut [u8]) -> usize {
     }
 
     last_nonzero + 1
-}
-
-/// Compute 10^n at compile time (for u128)
-#[inline(always)]
-const fn const_pow10_u128(n: u8) -> u128 {
-    match n {
-        0 => 1,
-        1 => 10,
-        2 => 100,
-        3 => 1_000,
-        4 => 10_000,
-        5 => 100_000,
-        6 => 1_000_000,
-        7 => 10_000_000,
-        8 => 100_000_000,
-        9 => 1_000_000_000,
-        10 => 10_000_000_000,
-        11 => 100_000_000_000,
-        12 => 1_000_000_000_000,
-        _ => panic!("pow10: exponent too large"),
-    }
 }
 
 impl fmt::Debug for D96 {
@@ -3545,65 +3505,6 @@ impl num_traits::Inv for D96 {
 /// scale constructors so the FULL dropped fraction participates in rounding
 /// (dividing in stages and truncating first, as the old code did, biased the
 /// result toward zero). `k` must be > 0; returns 0 when `10^k` overflows i128.
-/// Rounds a finite `f64` to the nearest integer (half away from zero) using only
-/// `core` operations — `f64::round` lives in `std`, so it is unavailable on a
-/// bare-metal `no_std` target. Equivalent to `value.round()` for every input the
-/// `from_f64` paths keep (they range-check the result afterwards): when
-/// `|value| < 2^95` the `as i128` truncation is exact, and larger magnitudes
-/// round to an out-of-range value that the caller rejects either way.
-#[inline]
-fn round_half_away_f64(value: f64) -> f64 {
-    let truncated = (value as i128) as f64; // toward zero (saturating for huge inputs)
-    let frac = value - truncated;
-    if frac >= 0.5 {
-        truncated + 1.0
-    } else if frac <= -0.5 {
-        truncated - 1.0
-    } else {
-        truncated
-    }
-}
-
-const fn round_div_pow10_i128(m: i128, k: u32) -> i128 {
-    if k >= 39 {
-        return 0;
-    }
-    let d = 10i128.pow(k);
-    let q = m / d;
-    let r = m % d;
-    let half = d / 2;
-    if r > half {
-        q + 1
-    } else if r < -half {
-        q - 1
-    } else if r == half {
-        if q % 2 == 0 { q } else { q + 1 }
-    } else if r == -half {
-        if q % 2 == 0 { q } else { q - 1 }
-    } else {
-        q
-    }
-}
-
-const fn const_pow10_i128(n: u8) -> i128 {
-    match n {
-        0 => 1,
-        1 => 10,
-        2 => 100,
-        3 => 1_000,
-        4 => 10_000,
-        5 => 100_000,
-        6 => 1_000_000,
-        7 => 10_000_000,
-        8 => 100_000_000,
-        9 => 1_000_000_000,
-        10 => 10_000_000_000,
-        11 => 100_000_000_000,
-        12 => 1_000_000_000_000,
-        _ => panic!("pow10 out of range for D96"),
-    }
-}
-
 /// Integer square root for u128 using binary search
 const fn isqrt_u128(n: u128) -> u128 {
     if n < 2 {
@@ -3628,31 +3529,6 @@ const fn isqrt_u128(n: u128) -> u128 {
     }
 
     right
-}
-
-#[inline(always)]
-const fn banker_round(quotient : i128, remainder : i128, half : i128) -> i128 {
-    if remainder > half {
-        quotient + 1
-    } else if remainder < -half {
-        quotient - 1
-    } else if remainder == half {
-        // Banker's rounding: round to even
-        if quotient % 2 == 0 {
-            quotient
-        } else {
-            quotient + 1
-        }
-    } else if remainder == -half {
-        // Banker's rounding: round to even
-        if quotient % 2 == 0 {
-            quotient
-        } else {
-            quotient - 1
-        }
-    } else {
-        quotient
-    }
 }
 
 #[cfg(test)]
