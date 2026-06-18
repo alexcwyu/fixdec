@@ -89,6 +89,7 @@ fn time_ref<T>(n: u64, a: &[T], b: &[T], op: impl Fn(&T, &T) -> T) -> f64 {
     start.elapsed().as_nanos() as f64 / n as f64
 }
 
+#[allow(clippy::too_many_arguments)]
 fn bench_copy<T: Copy>(
     name: &'static str,
     kind: &'static str,

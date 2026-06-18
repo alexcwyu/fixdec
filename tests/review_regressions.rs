@@ -270,9 +270,7 @@ fn oracle_round_div(m: i128, k: u32) -> i128 {
     let r = m % d; // same sign as m
     let twice = r.unsigned_abs() * 2;
     let dd = d as u128;
-    if twice > dd {
-        q += m.signum();
-    } else if twice == dd && q % 2 != 0 {
+    if twice > dd || (twice == dd && q % 2 != 0) {
         q += m.signum();
     }
     q

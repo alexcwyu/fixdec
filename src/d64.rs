@@ -1396,7 +1396,7 @@ impl D64 {
         // compare against the exact ±2^63 boundary (i64::MIN == -2^63 is valid).
         let scaled = (value * Self::SCALE as f64).round();
         const TWO_POW_63: f64 = 9_223_372_036_854_775_808.0;
-        if scaled >= TWO_POW_63 || scaled < -TWO_POW_63 {
+        if !(-TWO_POW_63..TWO_POW_63).contains(&scaled) {
             return None;
         }
 

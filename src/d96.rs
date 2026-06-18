@@ -335,7 +335,7 @@ impl D96 {
 
         if scale_diff == 0 {
             assert!(
-                mantissa <= Self::MAX_96BIT && mantissa >= Self::MIN_96BIT,
+                (Self::MIN_96BIT..=Self::MAX_96BIT).contains(&mantissa),
                 "overflow: mantissa exceeds D96 96-bit range"
             );
             Self { value: mantissa }
@@ -343,7 +343,7 @@ impl D96 {
             let multiplier = const_pow10_i128(scale_diff as u8);
 
             match mantissa.checked_mul(multiplier) {
-                Some(value) if value <= Self::MAX_96BIT && value >= Self::MIN_96BIT => {
+                Some(value) if (Self::MIN_96BIT..=Self::MAX_96BIT).contains(&value) => {
                     Self { value }
                 }
                 _ => panic!("overflow: mantissa * 10^{} exceeds D96 range", scale_diff),
@@ -355,6 +355,7 @@ impl D96 {
     ///
     /// Like `with_scale` but returns None instead of panicking.
     #[inline]
+    #[allow(clippy::manual_range_contains)] // RangeInclusive::contains is not const
     pub const fn try_with_scale(mantissa: i128, scale: u32) -> Option<Self> {
         if scale > Self::DECIMALS as u32 {
             return None;
@@ -3175,10 +3176,10 @@ impl num_traits::FromPrimitive for D96 {
     #[inline]
     fn from_i64(n: i64) -> Option<Self> {
         let scaled = (n as i128).checked_mul(Self::SCALE)?;
-        if scaled > Self::MAX.value || scaled < Self::MIN.value {
-            None
-        } else {
+        if (Self::MIN.value..=Self::MAX.value).contains(&scaled) {
             Some(Self { value: scaled })
+        } else {
+            None
         }
     }
 
