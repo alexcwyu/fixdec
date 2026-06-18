@@ -212,6 +212,20 @@ impl D96 {
         r
     }
 
+    /// Clamps an i128 intermediate to the representable 96-bit range. Used by the
+    /// rounding ops so rounding *up* past MAX (or *down* past MIN) saturates to
+    /// the boundary instead of yielding an out-of-96-bit `D96`.
+    #[inline(always)]
+    const fn clamp_to_96(v: i128) -> i128 {
+        if v > Self::MAX_96BIT {
+            Self::MAX_96BIT
+        } else if v < Self::MIN_96BIT {
+            Self::MIN_96BIT
+        } else {
+            v
+        }
+    }
+
     /// Creates a new D96 from a raw scaled value.
     ///
     /// # Panics
@@ -1363,19 +1377,21 @@ impl D96 {
             }
         } else {
             Self {
-                value: self.value - remainder - Self::SCALE,
+                value: Self::clamp_to_96(self.value - remainder - Self::SCALE),
             }
         }
     }
 
     /// Returns the smallest integer greater than or equal to `self`.
+    ///
+    /// Saturates to [`MAX`](Self::MAX) if ceiling would exceed the 96-bit range.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn ceil(self) -> Self {
         let remainder = self.value % Self::SCALE;
         if remainder > 0 {
             Self {
-                value: self.value - remainder + Self::SCALE,
+                value: Self::clamp_to_96(self.value - remainder + Self::SCALE),
             }
         } else {
             Self {
@@ -1410,10 +1426,10 @@ impl D96 {
         let remainder = self.value % Self::SCALE;
         let half = Self::SCALE / 2;
 
-        let rounded_quotient =banker_round(quotient, remainder, half);
+        let rounded_quotient = banker_round(quotient, remainder, half);
 
         Self {
-            value: rounded_quotient * Self::SCALE,
+            value: Self::clamp_to_96(rounded_quotient * Self::SCALE),
         }
     }
 
@@ -1437,10 +1453,10 @@ impl D96 {
         let remainder = self.value % rounding_factor;
         let half = rounding_factor / 2;
 
-        let rounded =banker_round(quotient, remainder, half);
+        let rounded = banker_round(quotient, remainder, half);
 
         Self {
-            value: rounded * rounding_factor,
+            value: Self::clamp_to_96(rounded * rounding_factor),
         }
     }
 }

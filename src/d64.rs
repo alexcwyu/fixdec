@@ -1017,7 +1017,24 @@ impl D64 {
 // ============================================================================
 
 impl D64 {
+    /// Clamps a wide (i128) intermediate to the representable i64 range. Used by
+    /// the rounding ops so that rounding *up* past MAX (or *down* past MIN)
+    /// saturates to the boundary instead of overflowing (panic in debug,
+    /// sign-flip in release).
+    #[inline(always)]
+    const fn clamp_to_i64(v: i128) -> i64 {
+        if v > i64::MAX as i128 {
+            i64::MAX
+        } else if v < i64::MIN as i128 {
+            i64::MIN
+        } else {
+            v as i64
+        }
+    }
+
     /// Returns the largest integer less than or equal to `self`.
+    ///
+    /// Saturates to [`MIN`](Self::MIN) if flooring would underflow.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn floor(self) -> Self {
@@ -1028,19 +1045,25 @@ impl D64 {
             }
         } else {
             Self {
-                value: self.value - remainder - Self::SCALE,
+                value: Self::clamp_to_i64(
+                    self.value as i128 - remainder as i128 - Self::SCALE as i128,
+                ),
             }
         }
     }
 
     /// Returns the smallest integer greater than or equal to `self`.
+    ///
+    /// Saturates to [`MAX`](Self::MAX) if ceiling would overflow.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn ceil(self) -> Self {
         let remainder = self.value % Self::SCALE;
         if remainder > 0 {
             Self {
-                value: self.value - remainder + Self::SCALE,
+                value: Self::clamp_to_i64(
+                    self.value as i128 - remainder as i128 + Self::SCALE as i128,
+                ),
             }
         } else {
             Self {
@@ -1068,6 +1091,9 @@ impl D64 {
     }
 
     /// Rounds to the nearest integer, using banker's rounding (round half to even).
+    ///
+    /// Saturates to [`MAX`](Self::MAX)/[`MIN`](Self::MIN) if rounding would
+    /// overflow the representable range.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn round(self) -> Self {
@@ -1075,10 +1101,10 @@ impl D64 {
         let remainder = self.value % Self::SCALE;
         let half = Self::SCALE / 2;
 
-        let rounded_quotient =banker_round(quotient, remainder, half);
+        let rounded_quotient = banker_round(quotient, remainder, half);
 
         Self {
-            value: rounded_quotient * Self::SCALE,
+            value: Self::clamp_to_i64(rounded_quotient as i128 * Self::SCALE as i128),
         }
     }
 
@@ -1110,10 +1136,10 @@ impl D64 {
         let remainder = self.value % rounding_factor;
         let half = rounding_factor / 2;
 
-        let rounded =banker_round(quotient, remainder, half);
+        let rounded = banker_round(quotient, remainder, half);
 
         Self {
-            value: rounded * rounding_factor,
+            value: Self::clamp_to_i64(rounded as i128 * rounding_factor as i128),
         }
     }
 }

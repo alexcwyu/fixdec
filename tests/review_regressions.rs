@@ -126,3 +126,44 @@ fn d96_with_scale_rejects_out_of_range() {
     // a valid in-range mantissa still works
     assert!(D96::try_with_scale(12345, 12).is_some());
 }
+
+// ============================================================================
+// [1],[4],[5] round()/round_dp()/ceil()/floor() must not overflow near MAX/MIN
+//     (was: panic in debug, sign-flip in release for D64; out-of-range for D96).
+//     They now saturate to the representable boundary.
+// ============================================================================
+
+#[test]
+fn d64_round_ceil_saturate_near_max() {
+    let r = D64::MAX.round();
+    assert!(r > D64::ZERO && r <= D64::MAX, "round(MAX) stays valid positive");
+    let c = D64::MAX.ceil();
+    assert!(c > D64::ZERO && c <= D64::MAX, "ceil(MAX) stays valid positive");
+    let rd = D64::MAX.round_dp(0);
+    assert!(rd > D64::ZERO && rd <= D64::MAX, "round_dp(MAX,0) stays valid");
+}
+
+#[test]
+fn d64_floor_saturates_near_min() {
+    let f = D64::MIN.floor();
+    assert!(f < D64::ZERO && f >= D64::MIN, "floor(MIN) stays valid negative");
+}
+
+#[test]
+fn d96_round_ceil_saturate_near_max() {
+    let r = D96::MAX.round();
+    assert!(D96::from_raw_checked(r.to_raw()).is_some());
+    assert!(r > D96::ZERO && r <= D96::MAX);
+    let c = D96::MAX.ceil();
+    assert!(D96::from_raw_checked(c.to_raw()).is_some());
+    assert!(c <= D96::MAX);
+    let rd = D96::MAX.round_dp(0);
+    assert!(D96::from_raw_checked(rd.to_raw()).is_some());
+}
+
+#[test]
+fn d96_floor_saturates_near_min() {
+    let f = D96::MIN.floor();
+    assert!(D96::from_raw_checked(f.to_raw()).is_some());
+    assert!(f >= D96::MIN);
+}
