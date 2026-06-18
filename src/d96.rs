@@ -588,7 +588,11 @@ impl D96 {
             let product = a * b;
             let quotient = product / (Self::SCALE as u128);
 
-            if quotient > Self::MAX.value as u128 {
+            // A negative result may legitimately reach magnitude |MIN| = 2^95,
+            // while a positive one caps at MAX = 2^95 - 1. Bounding the unsigned
+            // magnitude before the signed cast keeps `-(quotient as i128)` from
+            // overflowing and makes the post-sign re-check redundant.
+            if quotient > Self::max_magnitude(result_negative) {
                 return None;
             }
 
@@ -598,10 +602,6 @@ impl D96 {
                 quotient as i128
             };
 
-            if result > Self::MAX.value || result < Self::MIN.value {
-                return None;
-            }
-
             return Some(Self { value: result });
         }
 
@@ -609,7 +609,7 @@ impl D96 {
         let (prod_low, prod_high) = mul_96x96_to_192(a, b);
         let quotient = div_192_by_1e12(prod_low, prod_high)?;
 
-        if quotient > Self::MAX.value as u128 {
+        if quotient > Self::max_magnitude(result_negative) {
             return None;
         }
 
@@ -619,11 +619,22 @@ impl D96 {
             quotient as i128
         };
 
-        if result > Self::MAX.value || result < Self::MIN.value {
-            return None;
-        }
-
         Some(Self { value: result })
+    }
+
+    /// Largest representable unsigned magnitude for a result of the given sign.
+    ///
+    /// A negative D96 may reach `|MIN| = 2^95`; a positive one caps at
+    /// `MAX = 2^95 - 1`. Used to bound multiply/divide quotients before the
+    /// signed cast so `-(quotient as i128)` never overflows and so MIN-valued
+    /// results (e.g. `MIN * 1`, `MIN / 1`) are not falsely rejected.
+    #[inline(always)]
+    const fn max_magnitude(result_negative: bool) -> u128 {
+        if result_negative {
+            Self::MIN.value.unsigned_abs()
+        } else {
+            Self::MAX.value as u128
+        }
     }
 
     /// Saturating multiplication
@@ -664,7 +675,11 @@ impl D96 {
             quotient as i128
         };
 
-        Self { value: result }
+        // Reduce into the signed 96-bit range so no wrapping op ever emits an
+        // out-of-range D96 (matches wrapping_add/sub/neg/abs).
+        Self {
+            value: Self::wrap_to_96(result),
+        }
     }
 
     /// Multiply by an integer (faster than general multiplication)
@@ -700,14 +715,15 @@ impl D96 {
         let a = self.value.unsigned_abs();
         let b = mul.value.unsigned_abs();
 
-        // Use optimized 96×96 → 192-bit multiplication
-        debug_assert!(a <= Self::MAX.value as u128);
-        debug_assert!(b <= Self::MAX.value as u128);
+        // Use optimized 96×96 → 192-bit multiplication. Operand magnitudes may
+        // reach |MIN| = 2^95 (not MAX = 2^95-1), so assert against that bound.
+        debug_assert!(a <= Self::MIN.value.unsigned_abs());
+        debug_assert!(b <= Self::MIN.value.unsigned_abs());
 
         let (prod_low, prod_high) = mul_96x96_to_192(a, b);
         let quotient = div_192_by_1e12(prod_low, prod_high)?;
 
-        if quotient > Self::MAX.value as u128 {
+        if quotient > Self::max_magnitude(mul_negative) {
             return None;
         }
 
@@ -849,8 +865,10 @@ impl D96 {
         // Divide 192-bit number by b
         let quotient = div_192_by_u128(prod_low, prod_high, b)?;
 
-        // Check 96-bit bounds
-        if quotient > Self::MAX.value as u128 {
+        // A negative result may reach |MIN| = 2^95 (e.g. MIN / 1 == MIN); a
+        // positive one caps at MAX = 2^95 - 1. Bound the unsigned magnitude
+        // before the signed cast so MIN is reachable and the cast cannot wrap.
+        if quotient > Self::max_magnitude(result_negative) {
             return None;
         }
 
@@ -859,11 +877,6 @@ impl D96 {
         } else {
             quotient as i128
         };
-
-        // Final bounds check
-        if result > Self::MAX.value || result < Self::MIN.value {
-            return None;
-        }
 
         Some(Self { value: result })
     }
@@ -893,7 +906,10 @@ impl D96 {
             quotient as i128
         };
 
-        Self { value: result }
+        // Reduce into the signed 96-bit range (matches the other wrapping ops).
+        Self {
+            value: Self::wrap_to_96(result),
+        }
     }
 
     /// Saturating division. Clamps on overflow. Returns zero if `rhs` is zero.
