@@ -2269,6 +2269,15 @@ impl D96 {
                     return Err(DecimalError::InvalidFormat);
                 }
 
+                // Validate every remaining trailing byte regardless of the
+                // rounding branch. Without this, the >5 and <5 branches never
+                // scan the tail, so garbage like "1.0000000000001x" was parsed.
+                for &b in &frac_bytes[Self::DECIMALS as usize + 1..] {
+                    if b.wrapping_sub(b'0') > 9 {
+                        return Err(DecimalError::InvalidFormat);
+                    }
+                }
+
                 // Banker's rounding (round half to even)
                 if next_digit > 5 {
                     // Round up
@@ -2385,12 +2394,14 @@ fn parse_integer_swar(bytes: &[u8]) -> crate::Result<i128> {
             return Err(DecimalError::InvalidFormat);
         }
 
-        // Combine: result = result * 10000 + (d0*1000 + d1*100 + d2*10 + d3)
-        result = result * 10000
-            + (d0 as i128) * 1000
-            + (d1 as i128) * 100
-            + (d2 as i128) * 10
-            + (d3 as i128);
+        // Combine with checked arithmetic: the 48-byte length cap admits up to
+        // 48 integer digits, far beyond i128 (~39 digits), so an unchecked
+        // `* 10000` would panic in debug / wrap silently in release.
+        let chunk = (d0 as i128) * 1000 + (d1 as i128) * 100 + (d2 as i128) * 10 + (d3 as i128);
+        result = result
+            .checked_mul(10000)
+            .and_then(|v| v.checked_add(chunk))
+            .ok_or(DecimalError::Overflow)?;
         i += 4;
     }
 
@@ -2400,7 +2411,10 @@ fn parse_integer_swar(bytes: &[u8]) -> crate::Result<i128> {
         if digit > 9 {
             return Err(DecimalError::InvalidFormat);
         }
-        result = result * 10 + digit as i128;
+        result = result
+            .checked_mul(10)
+            .and_then(|v| v.checked_add(digit as i128))
+            .ok_or(DecimalError::Overflow)?;
         i += 1;
     }
 

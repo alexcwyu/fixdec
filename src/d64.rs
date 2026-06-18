@@ -1665,19 +1665,20 @@ impl D64 {
         let int_end = decimal_pos.unwrap_or(len);
         let int_slice = &bytes[start_pos..int_end];
 
-        // Fast integer parsing - branchless digit validation
+        // Fast integer parsing - branchless digit validation. Accumulate with
+        // checked arithmetic: a plain wrapping_mul/add lets out-of-range inputs
+        // (e.g. multiples of 2^64) wrap back to a small non-negative value that
+        // the `< 0` sign guard never catches.
         let mut integer_part = 0i64;
         for &byte in int_slice {
             let digit = byte.wrapping_sub(b'0');
             if digit > 9 {
                 return Err(DecimalError::InvalidFormat);
             }
-            integer_part = integer_part.wrapping_mul(10).wrapping_add(digit as i64);
-
-            // Check for overflow
-            if integer_part < 0 {
-                return Err(DecimalError::Overflow);
-            }
+            integer_part = integer_part
+                .checked_mul(10)
+                .and_then(|v| v.checked_add(digit as i64))
+                .ok_or(DecimalError::Overflow)?;
         }
 
         // Parse fractional part
@@ -1923,10 +1924,10 @@ impl D64 {
             if digit > 9 {
                 return Err(DecimalError::InvalidFormat);
             }
-            integer_part = integer_part.wrapping_mul(10).wrapping_add(digit as i64);
-            if integer_part < 0 {
-                return Err(DecimalError::Overflow);
-            }
+            integer_part = integer_part
+                .checked_mul(10)
+                .and_then(|v| v.checked_add(digit as i64))
+                .ok_or(DecimalError::Overflow)?;
         }
 
         // Parse fractional part with rounding
@@ -2016,19 +2017,25 @@ impl D64 {
             0
         };
 
-        // Combine parts
-        let int_scaled = integer_part
-            .checked_mul(Self::SCALE)
-            .ok_or(DecimalError::Overflow)?;
-
-        let abs_value = int_scaled
-            .checked_add(fractional_value as i64)
+        // Combine the (non-negative) magnitude in i128 so D64::MIN (whose
+        // magnitude is 2^63 = i64::MAX + 1) is reachable and lossy agrees with
+        // exact on representable inputs. A pure-i64 combine overflows for MIN.
+        let magnitude = (integer_part as i128)
+            .checked_mul(Self::SCALE as i128)
+            .and_then(|v| v.checked_add(fractional_value as i128))
             .ok_or(DecimalError::Overflow)?;
 
         let value = if is_negative {
-            abs_value.checked_neg().ok_or(DecimalError::Overflow)?
+            let signed = -magnitude;
+            if signed < i64::MIN as i128 {
+                return Err(DecimalError::Overflow);
+            }
+            signed as i64
         } else {
-            abs_value
+            if magnitude > i64::MAX as i128 {
+                return Err(DecimalError::Overflow);
+            }
+            magnitude as i64
         };
 
         Ok(Self { value })

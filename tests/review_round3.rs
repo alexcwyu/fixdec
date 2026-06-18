@@ -7,7 +7,8 @@
 //! lossy with_scale range checks, D96 integer From → TryFrom, and assorted
 //! predicate/interop correctness.
 
-use fixdec::D96;
+use core::str::FromStr;
+use fixdec::{D64, D96, DecimalError};
 
 /// -1.0 as a D96 without depending on a public SCALE constant.
 fn d96_neg_one() -> D96 {
@@ -72,4 +73,81 @@ fn d96_wrapping_div_stays_in_96_bit_range() {
         "wrapping_div emitted out-of-96-bit raw {}",
         r.to_raw()
     );
+}
+
+// ===========================================================================
+// [0] D64 integer-string parsing overflow (wraps i64, evades sign guard)
+// ===========================================================================
+
+#[test]
+fn d64_parse_out_of_range_integer_is_overflow() {
+    // 2^64, 2^64+1, 2^65 used to wrap into small valid-looking values.
+    for s in [
+        "18446744073709551616",   // 2^64        -> was Ok(0)
+        "18446744073709551617",   // 2^64 + 1    -> was Ok(1)
+        "36893488147419103232",   // 2^65        -> was Ok(0)
+        "184467440737095516170",  // 10 * 2^64   -> was Ok(10)
+        "18446744073709551616.5", // 2^64 + .5   -> was Ok(0.5)
+    ] {
+        assert_eq!(D64::from_str(s), Err(DecimalError::Overflow), "exact {s:?}");
+        assert_eq!(D64::from_str_lossy(s), Err(DecimalError::Overflow), "lossy {s:?}");
+    }
+    // Genuine boundary values still parse.
+    assert_eq!(D64::from_str("92233720368.54775807").unwrap(), D64::MAX);
+    assert_eq!(D64::from_str_lossy("92233720368.54775807").unwrap(), D64::MAX);
+}
+
+// ===========================================================================
+// [1] D96 integer-string parsing overflow (panics in debug, wraps in release)
+// ===========================================================================
+
+#[test]
+fn d96_parse_huge_integer_is_overflow_not_panic() {
+    for s in [
+        "340282366920938463463374607431768211456",  // 2^128 (39 digits)
+        "340282366920938463463374607431768211457",  // 2^128 + 1
+        "999999999999999999999999999999999999999",  // 39 nines
+    ] {
+        assert_eq!(D96::from_str(s), Err(DecimalError::Overflow), "exact {s:?}");
+        assert_eq!(D96::from_str_lossy(s), Err(DecimalError::Overflow), "lossy {s:?}");
+    }
+}
+
+// ===========================================================================
+// [2] D96::from_str_lossy must reject malformed trailing characters
+// ===========================================================================
+
+#[test]
+fn d96_lossy_rejects_malformed_trailing_chars() {
+    for s in [
+        "1.0000000000001x",            // <5 branch: 'x' was silently ignored
+        "1.0000000000009x",            // >5 branch: 'x' was silently ignored
+        "-2.0000000000004hello",       // <5 branch with a word
+        "1.0000000000001234567890abc", // garbage deep in the tail
+    ] {
+        assert!(
+            D96::from_str_lossy(s).is_err(),
+            "lossy should reject malformed {s:?}, got {:?}",
+            D96::from_str_lossy(s)
+        );
+    }
+    // A well-formed over-precise value still rounds (banker's).
+    assert_eq!(
+        D96::from_str_lossy("1.0000000000009").unwrap().to_string(),
+        "1.000000000001"
+    );
+}
+
+// ===========================================================================
+// [3] D64::from_str_lossy must accept D64::MIN (parity with from_str_exact)
+// ===========================================================================
+
+#[test]
+fn d64_lossy_accepts_min() {
+    let s = "-92233720368.54775808";
+    assert_eq!(D64::from_str_exact(s).unwrap(), D64::MIN);
+    assert_eq!(D64::from_str_lossy(s).unwrap(), D64::MIN);
+    // and they still agree on MIN+1
+    let s1 = "-92233720368.54775807";
+    assert_eq!(D64::from_str_lossy(s1).unwrap(), D64::from_str_exact(s1).unwrap());
 }
