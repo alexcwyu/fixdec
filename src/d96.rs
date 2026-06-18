@@ -1693,7 +1693,12 @@ impl D96 {
         }
     }
 
-    /// Creates a D96 from an i64 integer (always succeeds for reasonable values).
+    /// Creates a D96 from an i64 integer.
+    ///
+    /// NOTE: this does NOT range-check. D96's integer range is only ≈±3.96e16,
+    /// so `|value|` above that yields an out-of-96-bit (invalid) D96. For
+    /// untrusted input use `<D96 as num_traits::FromPrimitive>::from_i64` (with
+    /// the `num-traits` feature), which returns `None` when out of range.
     #[inline(always)]
     pub const fn from_i64(value: i64) -> Self {
         Self {
@@ -1717,7 +1722,11 @@ impl D96 {
         }
     }
 
-    /// Creates a D96 from a u64 integer (always succeeds for reasonable values).
+    /// Creates a D96 from a u64 integer.
+    ///
+    /// NOTE: this does NOT range-check (see [`from_i64`](Self::from_i64)). A
+    /// `value` above ≈3.96e16 yields an out-of-96-bit (invalid) D96; use the
+    /// `num-traits` `FromPrimitive::from_u64` for a checked conversion.
     #[inline(always)]
     pub const fn from_u64(value: u64) -> Self {
         Self {
@@ -3011,8 +3020,11 @@ impl<'de> Deserialize<'de> for D96 {
 
 // SAFETY: `D96` is `#[repr(transparent)]` over `i128` (itself `Pod`), so it has
 // identical layout with no padding bytes, and every bit pattern is a valid
-// `D96` (`from_raw` accepts any `i128`). The all-zero bit pattern is `D96::ZERO`,
-// so `Zeroable` holds as well.
+// *i128*. D96's 96-bit range is a logical/API invariant only — NO `unsafe` code
+// in this crate relies on it for memory safety — so Pod is sound even though
+// zero-copy construction can yield a logically-out-of-96-bit value (which would
+// be rejected by `from_raw`). The all-zero bit pattern is `D96::ZERO`, so
+// `Zeroable` holds as well.
 #[cfg(feature = "bytemuck")]
 unsafe impl bytemuck::Zeroable for D96 {}
 #[cfg(feature = "bytemuck")]
@@ -3029,9 +3041,12 @@ unsafe impl bytemuck::Pod for D96 {}
 // `Float`/`Real`/`Integer` are intentionally NOT implemented (D96 is not a
 // field and has no fractional reciprocal closure).
 //
-// Note vs D64: `D96::from_i64`/`from_u64` are infallible (an `i64`/`u64`
-// always fits the i128 backing store), and `D96::to_i64` is fallible (the
-// 96-bit range exceeds `i64`).
+// Note vs D64: `FromPrimitive::from_i64`/`from_u64` here range-check against
+// D96's ~±3.96e16 integer range and return `None` when exceeded (the inherent
+// `D96::from_i64`/`from_u64` do NOT range-check — see their docs). `to_i64`
+// returns `Option` for signature symmetry, but since D96's integer part is
+// bounded by ~3.96e16 < i64::MAX it never actually returns `None` for an
+// in-range value.
 
 #[cfg(feature = "num-traits")]
 impl num_traits::Zero for D96 {
@@ -3176,14 +3191,27 @@ impl num_traits::Saturating for D96 {
 
 #[cfg(feature = "num-traits")]
 impl num_traits::FromPrimitive for D96 {
+    /// Returns `None` if `n` exceeds D96's representable integer range
+    /// (≈±3.96e16). Does NOT call the unchecked inherent `from_i64`.
     #[inline]
     fn from_i64(n: i64) -> Option<Self> {
-        Some(Self::from_i64(n))
+        let scaled = (n as i128).checked_mul(Self::SCALE)?;
+        if scaled > Self::MAX.value || scaled < Self::MIN.value {
+            None
+        } else {
+            Some(Self { value: scaled })
+        }
     }
 
+    /// Returns `None` if `n` exceeds D96's representable integer range (≈3.96e16).
     #[inline]
     fn from_u64(n: u64) -> Option<Self> {
-        Some(Self::from_u64(n))
+        let scaled = (n as i128).checked_mul(Self::SCALE)?;
+        if scaled > Self::MAX.value {
+            None
+        } else {
+            Some(Self { value: scaled })
+        }
     }
 
     #[inline]
@@ -3194,7 +3222,9 @@ impl num_traits::FromPrimitive for D96 {
 
 #[cfg(feature = "num-traits")]
 impl num_traits::ToPrimitive for D96 {
-    /// Truncates toward zero; returns `None` if the integer part exceeds `i64`.
+    /// Truncates toward zero. Returns `Option` for trait symmetry, but D96's
+    /// integer part is bounded by ≈3.96e16 < i64::MAX, so for any in-range D96
+    /// it is always `Some`.
     #[inline]
     fn to_i64(&self) -> Option<i64> {
         D96::to_i64(*self)
