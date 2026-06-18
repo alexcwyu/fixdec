@@ -111,6 +111,46 @@ fn d64_python_roundtrip() {
 }
 
 #[test]
+fn python_bool_is_rejected() {
+    Python::attach(|py| {
+        // bool is a subclass of int in Python; it must NOT silently become 1/0.
+        let t = pyo3::types::PyBool::new(py, true).to_owned().into_any();
+        let f = pyo3::types::PyBool::new(py, false).to_owned().into_any();
+        assert!(t.extract::<D64>().is_err(), "True must not coerce to D64");
+        assert!(f.extract::<D64>().is_err(), "False must not coerce to D64");
+        assert!(t.extract::<D96>().is_err(), "True must not coerce to D96");
+    });
+}
+
+#[test]
+fn trailing_zero_decimal_extracts() {
+    Python::attach(|py| {
+        // Decimal whose format("f") keeps trailing zeros ("1.230000000") must
+        // still extract to the exact value 1.23 (was a precision-loss false pos).
+        let d = py_decimal(py, "1.230000000");
+        assert_eq!(d.extract::<D64>().unwrap(), D64::from_str("1.23").unwrap());
+        let d96 = py_decimal(py, "1.230000000000000");
+        assert_eq!(d96.extract::<D96>().unwrap(), D96::from_str("1.23").unwrap());
+    });
+}
+
+#[test]
+fn malformed_input_raises_value_error() {
+    use pyo3::exceptions::PyValueError;
+    Python::attach(|py| {
+        // bad numeric string -> ValueError (not decimal.InvalidOperation)
+        let bad = "not a number".into_pyobject(py).unwrap();
+        let err = bad.extract::<D64>().unwrap_err();
+        assert!(err.is_instance_of::<PyValueError>(py), "bad str -> ValueError");
+        // non-finite Decimal -> ValueError
+        let nan = py_decimal(py, "NaN");
+        assert!(nan.extract::<D64>().unwrap_err().is_instance_of::<PyValueError>(py));
+        let inf = py_decimal(py, "Infinity");
+        assert!(inf.extract::<D96>().unwrap_err().is_instance_of::<PyValueError>(py));
+    });
+}
+
+#[test]
 fn out_of_range_and_precision_loss_raise() {
     Python::attach(|py| {
         // int beyond D64 range -> ValueError

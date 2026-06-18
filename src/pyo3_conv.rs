@@ -21,7 +21,7 @@ use alloc::string::{String, ToString};
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyFloat, PyInt};
+use pyo3::types::{PyBool, PyFloat, PyInt};
 
 use crate::{D64, D96};
 
@@ -70,6 +70,11 @@ impl<'py> IntoPyObject<'py> for &D64 {
 
 impl<'py> FromPyObject<'py> for D64 {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        // bool is a subclass of int in Python; reject it so `True`/`False` are
+        // not silently coerced to 1/0.
+        if ob.is_instance_of::<PyBool>() {
+            return Err(PyValueError::new_err("bool is not a valid D64 value"));
+        }
         if ob.is_instance_of::<PyFloat>() {
             let f: f64 = ob.extract()?;
             return D64::from_f64(f)
@@ -82,7 +87,10 @@ impl<'py> FromPyObject<'py> for D64 {
             return D64::from_i64(i).ok_or_else(|| PyValueError::new_err("integer out of D64 range"));
         }
         // Decimal or str: normalize to a fixed-point string, then parse exactly.
-        let s = fixed_point_string(ob)?;
+        // Map any failure (decimal.InvalidOperation, TypeError, non-finite) to a
+        // ValueError so the contract is uniform.
+        let s = fixed_point_string(ob)
+            .map_err(|_| PyValueError::new_err("value is not a decimal representable as D64"))?;
         D64::from_str(&s).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 }
@@ -113,6 +121,10 @@ impl<'py> IntoPyObject<'py> for &D96 {
 
 impl<'py> FromPyObject<'py> for D96 {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        // bool is a subclass of int in Python; reject it (see D64).
+        if ob.is_instance_of::<PyBool>() {
+            return Err(PyValueError::new_err("bool is not a valid D96 value"));
+        }
         if ob.is_instance_of::<PyFloat>() {
             let f: f64 = ob.extract()?;
             return D96::from_f64(f)
@@ -125,7 +137,10 @@ impl<'py> FromPyObject<'py> for D96 {
             return D96::from_i128(i).ok_or_else(|| PyValueError::new_err("integer out of D96 range"));
         }
         // Decimal or str: normalize to a fixed-point string, then parse exactly.
-        let s = fixed_point_string(ob)?;
+        // Map any failure (decimal.InvalidOperation, TypeError, non-finite) to a
+        // ValueError so the contract is uniform.
+        let s = fixed_point_string(ob)
+            .map_err(|_| PyValueError::new_err("value is not a decimal representable as D96"))?;
         D96::from_str(&s).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 }
