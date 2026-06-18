@@ -2999,9 +2999,39 @@ impl<'de> Deserialize<'de> for D96 {
                 {
                     D96::from_str_exact(&v).map_err(de::Error::custom)
                 }
+
+                fn visit_i64<E>(self, v: i64) -> core::result::Result<Self::Value, E>
+                where
+                    E: de::Error,
+                {
+                    match (v as i128).checked_mul(D96::SCALE) {
+                        Some(scaled) => D96::from_raw_checked(scaled)
+                            .ok_or_else(|| de::Error::custom("integer out of D96 range")),
+                        None => Err(de::Error::custom("integer out of D96 range")),
+                    }
+                }
+
+                fn visit_u64<E>(self, v: u64) -> core::result::Result<Self::Value, E>
+                where
+                    E: de::Error,
+                {
+                    match (v as i128).checked_mul(D96::SCALE) {
+                        Some(scaled) => D96::from_raw_checked(scaled)
+                            .ok_or_else(|| de::Error::custom("integer out of D96 range")),
+                        None => Err(de::Error::custom("integer out of D96 range")),
+                    }
+                }
+
+                fn visit_f64<E>(self, v: f64) -> core::result::Result<Self::Value, E>
+                where
+                    E: de::Error,
+                {
+                    // Float inputs are rounded to 12 dp; the canonical form is a string.
+                    D96::from_f64(v).ok_or_else(|| de::Error::custom("f64 not representable as D96"))
+                }
             }
 
-            deserializer.deserialize_str(D96Visitor)
+            deserializer.deserialize_any(D96Visitor)
         } else {
             // Bincode, MessagePack, etc. - deserialize raw i128
             let value = i128::deserialize(deserializer)?;

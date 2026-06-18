@@ -2419,9 +2419,66 @@ impl<'de> Deserialize<'de> for D64 {
         D: Deserializer<'de>,
     {
         if deserializer.is_human_readable() {
-            // JSON, TOML, etc. - parse from string
-            let s = alloc::string::String::deserialize(deserializer)?;
-            Self::from_str(&s).map_err(de::Error::custom)
+            // JSON, TOML, etc. - accept either a decimal string OR a bare number
+            // (interop with producers that emit unquoted numbers). Uses a visitor
+            // to avoid allocating a String per value (mirrors D96).
+            struct D64Visitor;
+
+            impl<'de> de::Visitor<'de> for D64Visitor {
+                type Value = D64;
+
+                fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                    f.write_str("a decimal string or a number")
+                }
+
+                fn visit_str<E>(self, v: &str) -> core::result::Result<D64, E>
+                where
+                    E: de::Error,
+                {
+                    D64::from_str_exact(v).map_err(de::Error::custom)
+                }
+
+                fn visit_borrowed_str<E>(self, v: &'de str) -> core::result::Result<D64, E>
+                where
+                    E: de::Error,
+                {
+                    D64::from_str_exact(v).map_err(de::Error::custom)
+                }
+
+                fn visit_string<E>(
+                    self,
+                    v: alloc::string::String,
+                ) -> core::result::Result<D64, E>
+                where
+                    E: de::Error,
+                {
+                    D64::from_str_exact(&v).map_err(de::Error::custom)
+                }
+
+                fn visit_i64<E>(self, v: i64) -> core::result::Result<D64, E>
+                where
+                    E: de::Error,
+                {
+                    D64::from_i64(v).ok_or_else(|| de::Error::custom("integer out of D64 range"))
+                }
+
+                fn visit_u64<E>(self, v: u64) -> core::result::Result<D64, E>
+                where
+                    E: de::Error,
+                {
+                    D64::from_u64(v).ok_or_else(|| de::Error::custom("integer out of D64 range"))
+                }
+
+                fn visit_f64<E>(self, v: f64) -> core::result::Result<D64, E>
+                where
+                    E: de::Error,
+                {
+                    // Float inputs are rounded to 8 dp; the canonical form is a string.
+                    D64::from_f64(v).ok_or_else(|| de::Error::custom("f64 not representable as D64"))
+                }
+            }
+
+            deserializer.deserialize_any(D64Visitor)
         } else {
             // Bincode, MessagePack, etc. - deserialize raw i64
             let value = i64::deserialize(deserializer)?;

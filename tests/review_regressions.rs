@@ -208,3 +208,53 @@ fn d64_rem_min_by_neg_ulp_panics() {
     // checked_rem returns None here; the operator must panic, not silently wrap.
     let _ = D64::MIN % D64::from_raw(-1);
 }
+
+// ============================================================================
+// [12] serde Deserialize must accept JSON numbers (not only quoted strings),
+//      for interop with producers that emit bare numbers. [14] D64 deserialize
+//      should match D96 (allocation-free visitor).
+// ============================================================================
+
+#[cfg(feature = "serde")]
+mod serde_numbers {
+    use fixdec::{D64, D96};
+
+    #[test]
+    fn d64_accepts_json_numbers_and_strings() {
+        assert_eq!(serde_json::from_str::<D64>("42").unwrap(), D64::from_i32(42));
+        assert_eq!(serde_json::from_str::<D64>("-7").unwrap(), D64::from_i32(-7));
+        assert_eq!(
+            serde_json::from_str::<D64>("42.5").unwrap(),
+            D64::from_str("42.5").unwrap()
+        );
+        // Canonical quoted-string form still works.
+        assert_eq!(
+            serde_json::from_str::<D64>("\"42.5\"").unwrap(),
+            D64::from_str("42.5").unwrap()
+        );
+    }
+
+    #[test]
+    fn d96_accepts_json_numbers_and_strings() {
+        assert_eq!(serde_json::from_str::<D96>("42").unwrap(), D96::from_i32(42));
+        assert_eq!(serde_json::from_str::<D96>("-7").unwrap(), D96::from_i32(-7));
+        assert_eq!(
+            serde_json::from_str::<D96>("42.5").unwrap(),
+            D96::from_str("42.5").unwrap()
+        );
+        assert_eq!(
+            serde_json::from_str::<D96>("\"42.5\"").unwrap(),
+            D96::from_str("42.5").unwrap()
+        );
+    }
+
+    #[test]
+    fn round_trips_via_string_form() {
+        let v = D64::from_str("1234.56789").unwrap();
+        let json = serde_json::to_string(&v).unwrap();
+        assert_eq!(json, "\"1234.56789\""); // canonical = string
+        assert_eq!(serde_json::from_str::<D64>(&json).unwrap(), v);
+    }
+
+    use core::str::FromStr;
+}
