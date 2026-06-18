@@ -25,7 +25,9 @@ num-traits = { version = "0.2", optional = true, default-features = false }
 # Optional rust_decimal interop. default-features = false keeps it no_std
 # (rust_decimal's default features pull in `serde` + `std`).
 rust_decimal = { version = "1.39.0", optional = true, default-features = false }
-thiserror = "2.0.17"
+# default-features = false drops thiserror's `std` feature so the crate stays
+# truly no_std (thiserror exposes the `Error` impls via core on 2.x).
+thiserror = { version = "2.0.17", default-features = false }
 
 [features]
 default = []

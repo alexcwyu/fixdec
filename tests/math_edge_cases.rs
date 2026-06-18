@@ -214,6 +214,66 @@ fn d96_boundary_checked_vs_saturating() {
 // signum / abs consistency
 // ===========================================================================
 
+// ===========================================================================
+// from_f64 must match std `f64::round` semantics. The crate rounds with a
+// core-only helper (so it builds on bare-metal no_std); this oracle — using the
+// std `f64::round` available in tests — proves the helper is equivalent on the
+// inputs from_f64 accepts, across ties, signs, and magnitudes.
+// ===========================================================================
+
+fn d64_from_f64_oracle(v: f64) -> Option<D64> {
+    if !v.is_finite() {
+        return None;
+    }
+    let scaled = (v * 1e8_f64).round();
+    const TWO_POW_63: f64 = 9_223_372_036_854_775_808.0;
+    if !(-TWO_POW_63..TWO_POW_63).contains(&scaled) {
+        return None;
+    }
+    Some(D64::from_raw(scaled as i64))
+}
+
+fn d96_from_f64_oracle(v: f64) -> Option<D96> {
+    if !v.is_finite() {
+        return None;
+    }
+    let scaled = v * 1e12_f64;
+    // Mirror the crate's pre-round magnitude guard (compare against the raw
+    // 96-bit bounds as f64) before rounding.
+    let max = 39_614_081_257_132_168_796_771_975_167.0_f64; // MAX_96BIT
+    let min = -39_614_081_257_132_168_796_771_975_168.0_f64; // MIN_96BIT
+    if scaled > max || scaled < min {
+        return None;
+    }
+    let result = scaled.round();
+    if result > max || result < min {
+        return None;
+    }
+    Some(D96::from_raw(result as i128))
+}
+
+#[test]
+fn from_f64_matches_std_round_oracle() {
+    // Deterministic sweep hitting exact ties (k/8 places .5 on the 8th/12th dp),
+    // both signs, near zero, and a few larger magnitudes.
+    let mut bits: u64 = 0x9E37_79B9_7F4A_7C15; // fixed seed, no RNG dependency
+    for i in -2000..2000 {
+        // structured ties and quarters
+        let v = i as f64 / 80.0;
+        assert_eq!(D64::from_f64(v), d64_from_f64_oracle(v), "D64 from_f64({v})");
+        assert_eq!(D96::from_f64(v), d96_from_f64_oracle(v), "D96 from_f64({v})");
+    }
+    for _ in 0..5000 {
+        // xorshift over a wide range of magnitudes/signs
+        bits ^= bits << 13;
+        bits ^= bits >> 7;
+        bits ^= bits << 17;
+        let v = (bits as i64 as f64) / 1.0e9;
+        assert_eq!(D64::from_f64(v), d64_from_f64_oracle(v), "D64 from_f64({v})");
+        assert_eq!(D96::from_f64(v), d96_from_f64_oracle(v), "D96 from_f64({v})");
+    }
+}
+
 #[test]
 fn d64_signum_abs_consistency() {
     assert_eq!(d64("5").signum(), 1);

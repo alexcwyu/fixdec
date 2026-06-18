@@ -1881,7 +1881,7 @@ impl D96 {
             return None;
         }
 
-        let result = scaled.round() as i128;
+        let result = round_half_away_f64(scaled) as i128;
 
         // CRITICAL: Final 96-bit bounds check (catches rounding up past MAX).
         if result > Self::MAX.value || result < Self::MIN.value {
@@ -1933,7 +1933,7 @@ impl D96 {
             return Err(DecimalError::Underflow);
         }
 
-        let result = scaled.round() as i128;
+        let result = round_half_away_f64(scaled) as i128;
 
         if result > Self::MAX.value {
             return Err(DecimalError::Overflow);
@@ -3363,6 +3363,25 @@ impl num_traits::Inv for D96 {
 /// scale constructors so the FULL dropped fraction participates in rounding
 /// (dividing in stages and truncating first, as the old code did, biased the
 /// result toward zero). `k` must be > 0; returns 0 when `10^k` overflows i128.
+/// Rounds a finite `f64` to the nearest integer (half away from zero) using only
+/// `core` operations — `f64::round` lives in `std`, so it is unavailable on a
+/// bare-metal `no_std` target. Equivalent to `value.round()` for every input the
+/// `from_f64` paths keep (they range-check the result afterwards): when
+/// `|value| < 2^95` the `as i128` truncation is exact, and larger magnitudes
+/// round to an out-of-range value that the caller rejects either way.
+#[inline]
+fn round_half_away_f64(value: f64) -> f64 {
+    let truncated = (value as i128) as f64; // toward zero (saturating for huge inputs)
+    let frac = value - truncated;
+    if frac >= 0.5 {
+        truncated + 1.0
+    } else if frac <= -0.5 {
+        truncated - 1.0
+    } else {
+        truncated
+    }
+}
+
 const fn round_div_pow10_i128(m: i128, k: u32) -> i128 {
     if k >= 39 {
         return 0;

@@ -361,6 +361,25 @@ impl D64 {
 /// (dividing in stages and truncating first, as the old code did, biased the
 /// result toward zero). `k` must be > 0; returns 0 when `10^k` overflows i128
 /// (then `|m| < 10^k / 2`, so the magnitude rounds to 0).
+/// Rounds a finite `f64` to the nearest integer (half away from zero) using only
+/// `core` operations — `f64::round` lives in `std`, so it is unavailable on a
+/// bare-metal `no_std` target. Equivalent to `value.round()` for every input the
+/// `from_f64` paths keep (they range-check the result afterwards): when
+/// `|value| < 2^63`/`2^95` the `as i128` truncation is exact, and larger
+/// magnitudes round to an out-of-range value that the caller rejects either way.
+#[inline]
+fn round_half_away_f64(value: f64) -> f64 {
+    let truncated = (value as i128) as f64; // toward zero (saturating for huge inputs)
+    let frac = value - truncated;
+    if frac >= 0.5 {
+        truncated + 1.0
+    } else if frac <= -0.5 {
+        truncated - 1.0
+    } else {
+        truncated
+    }
+}
+
 const fn round_div_pow10_i128(m: i128, k: u32) -> i128 {
     if k >= 39 {
         return 0;
@@ -1509,7 +1528,7 @@ impl D64 {
         // of `> i64::MAX as f64` lets values that scale to exactly 2^63 through —
         // they then saturate to MAX instead of being rejected. Round first, then
         // compare against the exact ±2^63 boundary (i64::MIN == -2^63 is valid).
-        let scaled = (value * Self::SCALE as f64).round();
+        let scaled = round_half_away_f64(value * Self::SCALE as f64);
         const TWO_POW_63: f64 = 9_223_372_036_854_775_808.0;
         if !(-TWO_POW_63..TWO_POW_63).contains(&scaled) {
             return None;
@@ -1552,7 +1571,7 @@ impl D64 {
         }
 
         // Round first, then bound against the exact ±2^63 boundary (see `from_f64`).
-        let scaled = (value * Self::SCALE as f64).round();
+        let scaled = round_half_away_f64(value * Self::SCALE as f64);
         const TWO_POW_63: f64 = 9_223_372_036_854_775_808.0;
         if scaled >= TWO_POW_63 {
             return Err(DecimalError::Overflow);
