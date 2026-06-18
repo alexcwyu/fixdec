@@ -281,3 +281,29 @@ fn is_multiple_of_signed_min_no_overflow_panic() {
     assert!(D64::ZERO.is_multiple_of(D64::ZERO));
     assert!(!D64::ONE.is_multiple_of(D64::ZERO));
 }
+
+// ===========================================================================
+// [5] Trailing-dot mantissa grammar must be consistent (plain vs scientific)
+// ===========================================================================
+
+#[test]
+fn trailing_dot_mantissa_is_consistent() {
+    // "1." parses as 1 in the PLAIN path, matching the scientific path
+    // ("1.e3" = 1000) and rust_decimal; previously only the scientific half
+    // accepted a trailing dot.
+    assert_eq!(D64::from_str_exact("1.").unwrap(), D64::ONE);
+    assert_eq!(D64::from_str_lossy("1.").unwrap(), D64::ONE);
+    assert_eq!(D64::from_str_exact("-5.").unwrap().to_string(), "-5");
+    assert_eq!(D64::from_str_exact("1.e3").unwrap().to_string(), "1000");
+    assert_eq!(D96::from_str_exact("1.").unwrap(), D96::ONE);
+    assert_eq!(D96::from_str_lossy("1.").unwrap(), D96::ONE);
+
+    // Leading dot with digits still works; a lone "." stays invalid everywhere.
+    assert_eq!(D64::from_str_exact(".5").unwrap().to_string(), "0.5");
+    for bad in [".", "-.", "+."] {
+        assert!(D64::from_str_exact(bad).is_err(), "exact {bad:?}");
+        assert!(D64::from_str_lossy(bad).is_err(), "lossy {bad:?}");
+        assert!(D96::from_str_exact(bad).is_err(), "d96 exact {bad:?}");
+        assert!(D96::from_str_lossy(bad).is_err(), "d96 lossy {bad:?}");
+    }
+}

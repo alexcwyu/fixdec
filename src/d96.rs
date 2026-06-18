@@ -2046,7 +2046,10 @@ impl D96 {
         let fractional_value = if let Some(dp_idx) = decimal_idx {
             let frac_bytes = &bytes[dp_idx + 1..];
 
-            if frac_bytes.is_empty() {
+            // A trailing dot ("1.") is valid: the fractional part is empty (= 0),
+            // matching the scientific path and rust_decimal. A lone "." with no
+            // integer digits stays invalid.
+            if frac_bytes.is_empty() && int_bytes.is_empty() {
                 return Err(DecimalError::InvalidFormat);
             }
 
@@ -2254,7 +2257,9 @@ impl D96 {
         let fractional_value = if let Some(dp_idx) = decimal_idx {
             let frac_bytes = &bytes[dp_idx + 1..];
 
-            if frac_bytes.is_empty() {
+            // A trailing dot ("1.") is valid (empty fractional = 0), matching
+            // the scientific path / rust_decimal; a lone "." is invalid.
+            if frac_bytes.is_empty() && int_bytes.is_empty() {
                 return Err(DecimalError::InvalidFormat);
             }
 

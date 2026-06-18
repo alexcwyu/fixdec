@@ -1693,11 +1693,17 @@ impl D64 {
         // Parse fractional part
         let fractional_value = if let Some(dp) = decimal_pos {
             let frac_start = dp + 1;
-            if frac_start >= len {
-                return Err(DecimalError::InvalidFormat);
-            }
-
-            let frac_slice = &bytes[frac_start..];
+            // A trailing dot ("1.") is valid: the fractional part is empty (= 0),
+            // matching the scientific path ("1.e3") and rust_decimal. A lone "."
+            // with no integer digits stays invalid.
+            let frac_slice: &[u8] = if frac_start >= len {
+                if int_slice.is_empty() {
+                    return Err(DecimalError::InvalidFormat);
+                }
+                &[]
+            } else {
+                &bytes[frac_start..]
+            };
 
             // Trailing zeros are insignificant: "1.230000000" is exactly 1.23,
             // not precision loss. Trim them before the precision check so only a
@@ -1942,11 +1948,16 @@ impl D64 {
         // Parse fractional part with rounding
         let fractional_value = if let Some(dp) = decimal_pos {
             let frac_start = dp + 1;
-            if frac_start >= len {
-                return Err(DecimalError::InvalidFormat);
-            }
-
-            let frac_slice = &bytes[frac_start..];
+            // A trailing dot ("1.") is valid (empty fractional = 0), matching
+            // the scientific path / rust_decimal; a lone "." is invalid.
+            let frac_slice: &[u8] = if frac_start >= len {
+                if int_slice.is_empty() {
+                    return Err(DecimalError::InvalidFormat);
+                }
+                &[]
+            } else {
+                &bytes[frac_start..]
+            };
             let frac_len = frac_slice.len();
 
             if frac_len <= Self::DECIMALS as usize {
