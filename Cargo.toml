@@ -25,6 +25,10 @@ num-traits = { version = "0.2", optional = true, default-features = false }
 # Optional rust_decimal interop. default-features = false keeps it no_std
 # (rust_decimal's default features pull in `serde` + `std`).
 rust_decimal = { version = "1.39.0", optional = true, default-features = false }
+# Optional PyO3 interop (D64/D96 <-> Python decimal.Decimal). PyO3 links
+# libpython and needs a Python toolchain, so this feature is std-only and is
+# deliberately NOT part of `full`.
+pyo3 = { version = "0.26", optional = true, default-features = false }
 # default-features = false drops thiserror's `std` feature so the crate stays
 # truly no_std (thiserror exposes the `Error` impls via core on 2.x).
 thiserror = { version = "2.0.17", default-features = false }
@@ -38,6 +42,7 @@ bytemuck = ["dep:bytemuck"]
 zerocopy = ["dep:zerocopy"]
 num-traits = ["dep:num-traits"]
 rust-decimal = ["dep:rust_decimal", "alloc"]
+pyo3 = ["dep:pyo3", "std"]
 full = ["std", "serde", "bytemuck", "zerocopy", "num-traits", "rust-decimal"]
 
 [dev-dependencies]
@@ -54,6 +59,8 @@ num-traits = { version = "0.2", default-features = false }
 fixed = { version = "1.31", features = ["std"] }
 fpdec = "0.14.1"
 bigdecimal = "0.4.10"
+# auto-initialize lets the pyo3 interop tests start an embedded interpreter.
+pyo3 = { version = "0.26", features = ["auto-initialize"] }
 
 [profile.bench]
 opt-level = 3           # Maximum optimizations (default)

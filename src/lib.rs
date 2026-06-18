@@ -49,6 +49,9 @@ extern crate alloc;
 mod d64;
 mod d96;
 
+#[cfg(feature = "pyo3")]
+mod pyo3_conv;
+
 pub use d64::D64;
 pub use d96::D96;
 

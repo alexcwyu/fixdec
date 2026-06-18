@@ -140,7 +140,8 @@ fixdec = { version = "0.1", features = ["serde"] }
 | `zerocopy` | `FromBytes`/`IntoBytes`/`Immutable`/`KnownLayout` derives (`no_std`) |
 | `num-traits` | `Zero`/`One`/`Bounded`/`Signed`/`Num`/`Checked*`/`Saturating`/`From`/`ToPrimitive`/`Inv` impls (`no_std`) |
 | `rust-decimal` | Conversions to/from [`rust_decimal`](https://crates.io/crates/rust_decimal)'s `Decimal` (`no_std`, requires `alloc`) |
-| `full` | Enable all features |
+| `pyo3` | [PyO3](https://crates.io/crates/pyo3) interop: D64/D96 ↔ Python `decimal.Decimal` (`std`-only; not in `full`) |
+| `full` | Enable all pure-Rust features (everything except `pyo3`) |
 
 ### rust_decimal interop (`rust-decimal`)
 
@@ -165,6 +166,28 @@ assert_eq!(
 );
 // Out-of-range reports Overflow / Underflow by sign.
 ```
+
+### PyO3 interop (`pyo3`)
+
+With the `pyo3` feature, `D64`/`D96` can be passed to and returned from
+`#[pyfunction]`s directly — they convert to/from Python's exact `decimal.Decimal`
+(and accept `int`, `float`, or `str` on the way in):
+
+```rust,ignore
+use fixdec::D64;
+use pyo3::prelude::*;
+
+#[pyfunction]
+fn add_fee(price: D64, fee: D64) -> D64 {
+    // `price`/`fee` arrive as Python Decimals/ints/floats/strs; the return value
+    // becomes a Python `decimal.Decimal`, so no precision is lost either way.
+    price.saturating_add(fee)
+}
+```
+
+`float` arguments go through `from_f64` (rounded to the type's precision); a
+`Decimal`/`str` with more precision than the type holds raises `ValueError`. The
+feature is `std`-only (PyO3 links libpython), so it is not part of `full`.
 
 ### Zero-copy (bytemuck / zerocopy)
 
