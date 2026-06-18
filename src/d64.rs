@@ -167,8 +167,9 @@ impl Default for D64 {
 impl D64 {
     /// Creates a new D64 from a raw scaled value.
     ///
-    /// # Safety
-    /// The caller must ensure the value is properly scaled by 10^8.
+    /// `value` is interpreted as already scaled by 10^8 (e.g. `from_raw(150_000_000)`
+    /// is `1.5`). This is a safe operation: any `i64` is a valid D64, so no
+    /// scaling or validation is performed.
     #[inline(always)]
     pub const fn from_raw(value: i64) -> Self {
         Self { value }
@@ -547,12 +548,11 @@ impl D64 {
         let a = self.value as i128;
         let b = rhs.value as i128;
 
-        let product = match a.checked_mul(b) {
-            Some(p) => p,
-            None => return None,
-        };
+        // i64 * i64 always fits in i128 (|product| <= 2^126 < 2^127), so the
+        // multiply itself cannot overflow; div_by_scale_i128 performs the real
+        // range check against the i64 result range.
+        let product = a * b;
 
-        // Use our fast division helper
         match Self::div_by_scale_i128(product) {
             Some(result) => Some(Self { value: result }),
             None => None,

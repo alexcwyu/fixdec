@@ -229,7 +229,9 @@ impl D96 {
     /// Creates a new D96 from a raw scaled value.
     ///
     /// # Panics
-    /// Panics in debug mode if value exceeds 96-bit range
+    /// Panics (in both debug and release) if `value` exceeds the 96-bit range
+    /// `[MIN_96BIT, MAX_96BIT]`. Use [`from_raw_checked`](Self::from_raw_checked)
+    /// for a non-panicking variant.
     #[inline(always)]
     pub const fn from_raw(value: i128) -> Self {
         assert!(
