@@ -215,6 +215,96 @@ fn d64_rem_min_by_neg_ulp_panics() {
 //      should match D96 (allocation-free visitor).
 // ============================================================================
 
+// ============================================================================
+// [0] with_scale_lossy / try_with_scale_lossy must apply banker's rounding to
+//     the FULL dropped fraction, not truncate first (bug when scale - DECIMALS
+//     >= DECIMALS). raw = round_half_even(mantissa / 10^(scale - DECIMALS)).
+// ============================================================================
+
+#[test]
+fn d64_with_scale_lossy_rounds_not_truncates() {
+    // scale_diff = 8 triggers the old truncating pre-loop.
+    assert_eq!(D64::try_with_scale_lossy(995_284_399, 16), Some(D64::from_raw(10))); // 9.95.. -> 10
+    assert_eq!(D64::with_scale_lossy(995_284_399, 16), D64::from_raw(10));
+    assert_eq!(D64::try_with_scale_lossy(940_000_000, 16), Some(D64::from_raw(9))); // 9.4 -> 9
+    assert_eq!(D64::try_with_scale_lossy(950_000_000, 16), Some(D64::from_raw(10))); // 9.5 tie -> even 10
+    assert_eq!(D64::try_with_scale_lossy(850_000_000, 16), Some(D64::from_raw(8))); // 8.5 tie -> even 8
+    assert_eq!(D64::try_with_scale_lossy(-995_284_399, 16), Some(D64::from_raw(-10)));
+    assert_eq!(D64::try_with_scale_lossy(1, 50), Some(D64::ZERO)); // huge scale -> 0
+}
+
+#[test]
+fn d96_with_scale_lossy_rounds_not_truncates() {
+    // scale_diff = 12 triggers the old truncating pre-loop.
+    assert_eq!(
+        D96::try_with_scale_lossy(9_952_843_958_502, 24),
+        Some(D96::from_raw(10))
+    ); // 9.95.. -> 10
+    assert_eq!(D96::with_scale_lossy(9_952_843_958_502, 24), D96::from_raw(10));
+    assert_eq!(
+        D96::try_with_scale_lossy(1_500_000_000_001, 24),
+        Some(D96::from_raw(2))
+    ); // just over 1.5 -> 2
+    assert_eq!(
+        D96::try_with_scale_lossy(2_500_000_000_000, 24),
+        Some(D96::from_raw(2))
+    ); // 2.5 tie -> even 2
+    assert_eq!(
+        D96::try_with_scale_lossy(-9_952_843_958_502, 24),
+        Some(D96::from_raw(-10))
+    );
+    assert_eq!(D96::try_with_scale_lossy(1, 60), Some(D96::ZERO));
+}
+
+/// Independent round-half-to-even oracle for `m / 10^k` (computed as `2*|r|` vs
+/// `d` with signum — structurally different from the impl's banker_round).
+fn oracle_round_div(m: i128, k: u32) -> i128 {
+    if k == 0 {
+        return m;
+    }
+    if k >= 39 {
+        return 0;
+    }
+    let d = 10i128.pow(k);
+    let mut q = m / d; // truncates toward zero
+    let r = m % d; // same sign as m
+    let twice = r.unsigned_abs() * 2;
+    let dd = d as u128;
+    if twice > dd {
+        q += m.signum();
+    } else if twice == dd && q % 2 != 0 {
+        q += m.signum();
+    }
+    q
+}
+
+#[test]
+fn with_scale_lossy_matches_oracle_fuzz() {
+    // splitmix64-ish LCG for deterministic pseudo-random cases.
+    let mut state: u64 = 0x9E3779B97F4A7C15;
+    let mut next = || {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        state
+    };
+    for _ in 0..20_000 {
+        // D64: mantissa across full i64, scale in (8, 30].
+        let m64 = next() as i64;
+        let k = (next() % 23) as u32 + 1; // 1..=23
+        let scale = 8 + k;
+        let expect = oracle_round_div(m64 as i128, k);
+        let got = D64::try_with_scale_lossy(m64, scale).unwrap().to_raw();
+        assert_eq!(got as i128, expect, "D64 mantissa={m64} scale={scale}");
+
+        // D96: mantissa across a wide i128, scale in (12, 45].
+        let m128 = ((next() as i128) << 64) | (next() as i128);
+        let k2 = (next() % 33) as u32 + 1; // 1..=33
+        let scale2 = 12 + k2;
+        let expect2 = oracle_round_div(m128, k2);
+        let got2 = D96::try_with_scale_lossy(m128, scale2).unwrap().to_raw();
+        assert_eq!(got2, expect2, "D96 mantissa={m128} scale={scale2}");
+    }
+}
+
 #[cfg(feature = "serde")]
 mod serde_numbers {
     use fixdec::{D64, D96};

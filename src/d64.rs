@@ -317,39 +317,12 @@ impl D64 {
                 }
             }
         } else {
-            // Need to round: divide by 10^(scale - 8)
+            // Need to round: divide by 10^(scale - 8) with banker's rounding,
+            // applied to the FULL dropped fraction in a single i128 step. The
+            // rounded magnitude is <= |mantissa|, so it always fits i64.
             let scale_diff = scale - Self::DECIMALS as u32;
-
-            // For very large scale differences, the result will be 0 or very close to 0
-            // We handle this by repeatedly dividing by manageable powers of 10
-            let mut result = mantissa;
-            let mut remaining_scale = scale_diff;
-
-            // Divide by 10^8 repeatedly for very large scales
-            while remaining_scale >= 8 {
-                result /= 100_000_000;
-                remaining_scale -= 8;
-
-                // Early exit if we've already rounded to 0
-                if result == 0 {
-                    return Self::ZERO;
-                }
-            }
-
-            // Handle remaining scale (0-7)
-            if remaining_scale == 0 {
-                Self { value: result }
-            } else {
-                let divisor = const_pow10_i64(remaining_scale as u8);
-
-                let quotient = result / divisor;
-                let remainder = result % divisor;
-                let half = divisor / 2;
-
-                // Banker's rounding
-                let rounded = banker_round(quotient, remainder, half);
-
-                Self { value: rounded }
+            Self {
+                value: round_div_pow10_i128(mantissa as i128, scale_diff) as i64,
             }
         }
     }
@@ -373,38 +346,39 @@ impl D64 {
                 }
             }
         } else {
-            // Need to round: divide by 10^(scale - 8)
+            // Need to round: divide by 10^(scale - 8) with banker's rounding,
+            // applied to the FULL dropped fraction in a single i128 step.
             let scale_diff = scale - Self::DECIMALS as u32;
-
-            // For very large scale differences, repeatedly divide
-            let mut result = mantissa;
-            let mut remaining_scale = scale_diff;
-
-            while remaining_scale >= 8 {
-                result /= 100_000_000;
-                remaining_scale -= 8;
-
-                if result == 0 {
-                    return Some(Self::ZERO);
-                }
-            }
-
-            // Handle remaining scale (0-7)
-            if remaining_scale == 0 {
-                Some(Self { value: result })
-            } else {
-                let divisor = const_pow10_i64(remaining_scale as u8);
-
-                let quotient = result / divisor;
-                let remainder = result % divisor;
-                let half = divisor / 2;
-
-                // Banker's rounding
-                let rounded = banker_round(quotient, remainder, half);
-
-                Some(Self { value: rounded })
-            }
+            Some(Self {
+                value: round_div_pow10_i128(mantissa as i128, scale_diff) as i64,
+            })
         }
+    }
+}
+
+/// Round-half-to-even division of an i128 `m` by `10^k`. Used by the lossy
+/// scale constructors so the FULL dropped fraction participates in rounding
+/// (dividing in stages and truncating first, as the old code did, biased the
+/// result toward zero). `k` must be > 0; returns 0 when `10^k` overflows i128
+/// (then `|m| < 10^k / 2`, so the magnitude rounds to 0).
+const fn round_div_pow10_i128(m: i128, k: u32) -> i128 {
+    if k >= 39 {
+        return 0;
+    }
+    let d = 10i128.pow(k);
+    let q = m / d;
+    let r = m % d;
+    let half = d / 2;
+    if r > half {
+        q + 1
+    } else if r < -half {
+        q - 1
+    } else if r == half {
+        if q % 2 == 0 { q } else { q + 1 }
+    } else if r == -half {
+        if q % 2 == 0 { q } else { q - 1 }
+    } else {
+        q
     }
 }
 
