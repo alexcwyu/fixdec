@@ -242,3 +242,25 @@ fn d96_with_scale_lossy_slow_path_panics_on_overflow() {
     let huge: i128 = 100_000_000_000_000_000_000_000_000_000_000_000; // 1e35
     let _ = D96::with_scale_lossy(huge, 13);
 }
+
+// ===========================================================================
+// [15] D96 integer conversions from i64/u64 must be fallible & range-checked
+// ===========================================================================
+
+#[test]
+fn d96_integer_tryfrom_is_range_checked() {
+    assert_eq!(D96::try_from(42_i64).unwrap().to_i128(), 42);
+    assert_eq!(D96::try_from(1_000_000_u64).unwrap().to_i128(), 1_000_000);
+
+    // floor(D96::MAX integer part) is representable; one past it overflows.
+    let max_int: i64 = 39_614_081_257_132_168;
+    assert!(D96::try_from(max_int).is_ok());
+    assert!(D96::try_from(-max_int).is_ok());
+    assert_eq!(D96::try_from(max_int + 1), Err(DecimalError::Overflow));
+
+    // Values beyond D96's ~±3.96e16 integer range are rejected, never silently
+    // truncated to an out-of-96-bit value.
+    assert_eq!(D96::try_from(i64::MAX), Err(DecimalError::Overflow));
+    assert_eq!(D96::try_from(u64::MAX), Err(DecimalError::Overflow));
+    assert_eq!(D96::try_from(i64::MIN), Err(DecimalError::Overflow));
+}

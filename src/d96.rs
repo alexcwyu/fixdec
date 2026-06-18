@@ -2822,17 +2822,24 @@ impl TryFrom<f32> for D96 {
     }
 }
 
-impl From<i64> for D96 {
+// i64 / u64 are NOT total conversions: D96's integer range (~±3.96e16) is
+// smaller than i64/u64, so a `From` impl would have to either panic or mint an
+// out-of-96-bit value. We expose fallible `TryFrom` instead (mirroring D64).
+impl TryFrom<i64> for D96 {
+    type Error = DecimalError;
+
     #[inline(always)]
-    fn from(value: i64) -> Self {
-        Self::from_i64(value)
+    fn try_from(value: i64) -> crate::Result<Self> {
+        Self::try_from_i128(value as i128)
     }
 }
 
-impl From<u64> for D96 {
+impl TryFrom<u64> for D96 {
+    type Error = DecimalError;
+
     #[inline(always)]
-    fn from(value: u64) -> Self {
-        Self::from_u64(value)
+    fn try_from(value: u64) -> crate::Result<Self> {
+        Self::try_from_i128(value as i128)
     }
 }
 
@@ -3996,8 +4003,10 @@ mod conversion_tests {
         let d = D96::from_i64(100);
         assert_eq!(d.to_i128(), 100);
 
-        let d = D96::from(100i64);
+        // i64 -> D96 is fallible (range-checked); in-range values convert.
+        let d = D96::try_from(100i64).unwrap();
         assert_eq!(d.to_i128(), 100);
+        assert_eq!(D96::try_from(i64::MAX), Err(DecimalError::Overflow));
     }
 
     #[test]
@@ -4099,8 +4108,9 @@ mod conversion_tests {
         let d4: D96 = 42u16.into();
         let d5: D96 = 42i32.into();
         let d6: D96 = 42u32.into();
-        let d7: D96 = 42i64.into();
-        let d8: D96 = 42u64.into();
+        // i64 / u64 are fallible (D96's integer range is smaller than theirs).
+        let d7: D96 = D96::try_from(42i64).unwrap();
+        let d8: D96 = D96::try_from(42u64).unwrap();
 
         assert_eq!(d1.to_i128(), 42);
         assert_eq!(d2.to_i128(), 42);
