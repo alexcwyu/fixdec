@@ -862,15 +862,23 @@ impl D64 {
 
 impl D64 {
     /// Returns the absolute value of `self`.
+    ///
+    /// `abs(MIN)` is not representable (`-i64::MIN` overflows), so it saturates
+    /// to [`MAX`](Self::MAX) rather than panicking or wrapping to a negative
+    /// value. Use [`checked_abs`](Self::checked_abs) to detect that boundary.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn abs(self) -> Self {
-        Self {
-            value: if self.value < 0 {
-                -self.value
-            } else {
-                self.value
-            },
+        if self.value == i64::MIN {
+            Self::MAX
+        } else {
+            Self {
+                value: if self.value < 0 {
+                    -self.value
+                } else {
+                    self.value
+                },
+            }
         }
     }
 

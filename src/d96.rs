@@ -196,6 +196,22 @@ impl D96 {
     const MAX_96BIT: i128 = 39_614_081_257_132_168_796_771_975_167;
     const MIN_96BIT: i128 = -39_614_081_257_132_168_796_771_975_168;
 
+    /// Reduces an i128 into the signed 96-bit range `[MIN_96BIT, MAX_96BIT]` by
+    /// wrapping modulo 2^96. Used by the `wrapping_*` operators so they wrap at
+    /// the type's 96-bit boundary (like a native integer would at its own
+    /// boundary) and never emit an out-of-range `D96`.
+    #[inline(always)]
+    const fn wrap_to_96(v: i128) -> i128 {
+        const TWO_POW_96: i128 = 1i128 << 96;
+        let mut r = v % TWO_POW_96;
+        if r > Self::MAX_96BIT {
+            r -= TWO_POW_96;
+        } else if r < Self::MIN_96BIT {
+            r += TWO_POW_96;
+        }
+        r
+    }
+
     /// Creates a new D96 from a raw scaled value.
     ///
     /// # Panics
@@ -304,13 +320,19 @@ impl D96 {
         let scale_diff = Self::DECIMALS as u32 - scale;
 
         if scale_diff == 0 {
+            assert!(
+                mantissa <= Self::MAX_96BIT && mantissa >= Self::MIN_96BIT,
+                "overflow: mantissa exceeds D96 96-bit range"
+            );
             Self { value: mantissa }
         } else {
             let multiplier = const_pow10_i128(scale_diff as u8);
 
             match mantissa.checked_mul(multiplier) {
-                Some(value) => Self { value },
-                None => panic!("overflow: mantissa * 10^{} exceeds D96 range", scale_diff),
+                Some(value) if value <= Self::MAX_96BIT && value >= Self::MIN_96BIT => {
+                    Self { value }
+                }
+                _ => panic!("overflow: mantissa * 10^{} exceeds D96 range", scale_diff),
             }
         }
     }
@@ -327,12 +349,21 @@ impl D96 {
         let scale_diff = Self::DECIMALS as u32 - scale;
 
         if scale_diff == 0 {
+            if mantissa > Self::MAX_96BIT || mantissa < Self::MIN_96BIT {
+                return None;
+            }
             Some(Self { value: mantissa })
         } else {
             let multiplier = const_pow10_i128(scale_diff as u8);
 
             match mantissa.checked_mul(multiplier) {
-                Some(value) => Some(Self { value }),
+                Some(value) => {
+                    if value > Self::MAX_96BIT || value < Self::MIN_96BIT {
+                        None
+                    } else {
+                        Some(Self { value })
+                    }
+                }
                 None => None,
             }
         }
@@ -488,12 +519,12 @@ impl D96 {
         }
     }
 
-    /// Wrapping addition. Wraps on overflow.
+    /// Wrapping addition. Wraps at the 96-bit boundary on overflow.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn wrapping_add(self, rhs: Self) -> Self {
         Self {
-            value: self.value.wrapping_add(rhs.value),
+            value: Self::wrap_to_96(self.value.wrapping_add(rhs.value)),
         }
     }
 
@@ -543,12 +574,12 @@ impl D96 {
         }
     }
 
-    /// Wrapping subtraction. Wraps on overflow.
+    /// Wrapping subtraction. Wraps at the 96-bit boundary on overflow.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn wrapping_sub(self, rhs: Self) -> Self {
         Self {
-            value: self.value.wrapping_sub(rhs.value),
+            value: Self::wrap_to_96(self.value.wrapping_sub(rhs.value)),
         }
     }
 
@@ -1147,12 +1178,12 @@ impl D96 {
         }
     }
 
-    /// Wrapping negation. Wraps on overflow.
+    /// Wrapping negation. Wraps at the 96-bit boundary on overflow.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn wrapping_neg(self) -> Self {
         Self {
-            value: self.value.wrapping_neg(),
+            value: Self::wrap_to_96(self.value.wrapping_neg()),
         }
     }
 
@@ -1173,15 +1204,23 @@ impl D96 {
 
 impl D96 {
     /// Returns the absolute value of `self`.
+    ///
+    /// `abs(MIN)` is not representable in 96 bits (`-(-2^95) = 2^95` is one past
+    /// [`MAX`](Self::MAX)), so it saturates to `MAX` rather than returning an
+    /// out-of-range value. Use [`checked_abs`](Self::checked_abs) to detect it.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn abs(self) -> Self {
-        Self {
-            value: if self.value < 0 {
-                -self.value
-            } else {
-                self.value
-            },
+        if self.value == Self::MIN.value {
+            Self::MAX
+        } else {
+            Self {
+                value: if self.value < 0 {
+                    -self.value
+                } else {
+                    self.value
+                },
+            }
         }
     }
 
@@ -1207,12 +1246,12 @@ impl D96 {
         }
     }
 
-    /// Wrapping absolute value. Wraps on overflow.
+    /// Wrapping absolute value. Wraps at the 96-bit boundary on overflow.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn wrapping_abs(self) -> Self {
         Self {
-            value: self.value.wrapping_abs(),
+            value: Self::wrap_to_96(self.value.wrapping_abs()),
         }
     }
 

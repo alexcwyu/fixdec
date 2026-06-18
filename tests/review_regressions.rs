@@ -65,3 +65,64 @@ fn d96_from_f64_rejects_truly_out_of_range() {
     assert_eq!(D96::try_from_f64(5.0e16), Err(DecimalError::Overflow));
     assert_eq!(D96::try_from_f64(-5.0e16), Err(DecimalError::Underflow));
 }
+
+// ============================================================================
+// [2] D64::abs() must not overflow at MIN (was: panic in debug / negative in
+//     release). It now saturates to MAX, matching saturating_abs.
+// ============================================================================
+
+#[test]
+fn d64_abs_saturates_at_min() {
+    assert_eq!(D64::MIN.abs(), D64::MAX);
+    assert_eq!(D64::from_raw(-5).abs(), D64::from_raw(5));
+    assert_eq!(D64::from_raw(7).abs(), D64::from_raw(7));
+    // num_traits::Signed::abs delegates to this and must also be safe.
+}
+
+// ============================================================================
+// [3] D96::abs()/wrapping_abs()/wrapping_neg() must never emit an out-of-96-bit
+//     value at MIN.
+// ============================================================================
+
+#[test]
+fn d96_abs_saturates_at_min() {
+    assert_eq!(D96::MIN.abs(), D96::MAX);
+    assert!(D96::from_raw_checked(D96::MIN.abs().to_raw()).is_some());
+}
+
+#[test]
+fn d96_wrapping_neg_abs_stay_in_range() {
+    // Like i64: wrapping neg/abs of MIN wraps back to MIN (a valid value).
+    assert!(D96::from_raw_checked(D96::MIN.wrapping_neg().to_raw()).is_some());
+    assert!(D96::from_raw_checked(D96::MIN.wrapping_abs().to_raw()).is_some());
+    assert_eq!(D96::MIN.wrapping_neg(), D96::MIN);
+    assert_eq!(D96::MIN.wrapping_abs(), D96::MIN);
+    // Ordinary values are unaffected.
+    assert_eq!(D96::from_raw(-5).wrapping_neg(), D96::from_raw(5));
+    assert_eq!(D96::from_raw(-5).wrapping_abs(), D96::from_raw(5));
+}
+
+// ============================================================================
+// [7] D96 wrapping_add/sub must wrap at the 96-bit boundary, and
+//     with_scale/try_with_scale must reject out-of-96-bit mantissas.
+// ============================================================================
+
+#[test]
+fn d96_wrapping_add_sub_wrap_into_range() {
+    let ulp = D96::from_raw(1);
+    let r = D96::MAX.wrapping_add(ulp);
+    assert!(D96::from_raw_checked(r.to_raw()).is_some(), "wrap stays valid");
+    assert_eq!(r, D96::MIN); // MAX + 1 wraps to MIN
+    let r2 = D96::MIN.wrapping_sub(ulp);
+    assert_eq!(r2, D96::MAX); // MIN - 1 wraps to MAX
+}
+
+#[test]
+fn d96_with_scale_rejects_out_of_range() {
+    let over = D96::MAX.to_raw() + 1000;
+    assert_eq!(D96::try_with_scale(over, 12), None); // fast path (scale == DECIMALS)
+    // multiply branch: MAX * 10 exceeds the 96-bit range
+    assert_eq!(D96::try_with_scale(D96::MAX.to_raw(), 11), None);
+    // a valid in-range mantissa still works
+    assert!(D96::try_with_scale(12345, 12).is_some());
+}
