@@ -139,7 +139,32 @@ fixdec = { version = "0.1", features = ["serde"] }
 | `bytemuck` | `Pod`/`Zeroable` impls for zero-copy byte reinterpretation (`no_std`) |
 | `zerocopy` | `FromBytes`/`IntoBytes`/`Immutable`/`KnownLayout` derives (`no_std`) |
 | `num-traits` | `Zero`/`One`/`Bounded`/`Signed`/`Num`/`Checked*`/`Saturating`/`From`/`ToPrimitive`/`Inv` impls (`no_std`) |
+| `rust-decimal` | Conversions to/from [`rust_decimal`](https://crates.io/crates/rust_decimal)'s `Decimal` (`no_std`, requires `alloc`) |
 | `full` | Enable all features |
+
+### rust_decimal interop (`rust-decimal`)
+
+Convert between `fixdec` types and `rust_decimal::Decimal`. Widening is exact and
+infallible (`From`); narrowing is fallible (`TryFrom`) and mirrors the crate's own
+strict-vs-rounding convention:
+
+```rust
+use core::str::FromStr;
+use fixdec::D64;
+use rust_decimal::Decimal;
+
+// D64/D96 -> Decimal is always exact:
+let d = D64::from_str("123.45").unwrap();
+let dec: Decimal = d.into();              // or d.to_rust_decimal()
+
+// Decimal -> D64: strict refuses extra precision, rounding keeps it:
+assert!(D64::from_rust_decimal(Decimal::from_str("0.000000001").unwrap()).is_err()); // PrecisionLoss (9th dp)
+assert_eq!(
+    D64::from_rust_decimal_round(Decimal::from_str("0.000000001").unwrap()).unwrap(),
+    D64::ZERO,                            // banker's-rounded to 8 dp
+);
+// Out-of-range reports Overflow / Underflow by sign.
+```
 
 ### Zero-copy (bytemuck / zerocopy)
 

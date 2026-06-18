@@ -1294,6 +1294,121 @@ impl From<D64> for D96 {
 }
 
 // ============================================================================
+// rust_decimal Interop (feature = "rust-decimal")
+// ============================================================================
+
+#[cfg(feature = "rust-decimal")]
+impl D64 {
+    /// Converts this `D64` to a [`rust_decimal::Decimal`].
+    ///
+    /// Always exact and infallible: the `i64` mantissa fits `Decimal`'s 96-bit
+    /// representation and the fixed scale of 8 is within `Decimal`'s maximum
+    /// scale of 28, so the constructor cannot fail.
+    #[inline]
+    #[must_use]
+    pub fn to_rust_decimal(self) -> rust_decimal::Decimal {
+        rust_decimal::Decimal::new(self.value, Self::DECIMALS as u32)
+    }
+
+    /// Converts a [`rust_decimal::Decimal`] to a `D64` exactly.
+    ///
+    /// Returns `Err(PrecisionLoss)` if the value has more than 8 decimal places,
+    /// or `Err(Overflow)`/`Err(Underflow)` if the magnitude exceeds `D64`'s
+    /// range. Use [`from_rust_decimal_round`](Self::from_rust_decimal_round) to
+    /// round the extra decimals instead of failing.
+    pub fn from_rust_decimal(value: rust_decimal::Decimal) -> crate::Result<Self> {
+        let mantissa = value.mantissa();
+        let scale = value.scale();
+        let dp = Self::DECIMALS as u32;
+        let raw = if scale <= dp {
+            // Scale the mantissa up to 8 dp; exact. For a valid `Decimal` this
+            // multiply cannot overflow i128 (|mantissa| * 10^8 <= ~7.9e36), so
+            // the None arm is unreachable; classify by sign for consistency with
+            // D96 and to stay correct if the scale ever changes.
+            match mantissa.checked_mul(10i128.pow(dp - scale)) {
+                Some(v) => v,
+                None => {
+                    return Err(if mantissa < 0 {
+                        DecimalError::Underflow
+                    } else {
+                        DecimalError::Overflow
+                    });
+                }
+            }
+        } else {
+            // More than 8 dp: the dropped digits must be zero to be exact.
+            let divisor = 10i128.pow(scale - dp);
+            if mantissa % divisor != 0 {
+                return Err(DecimalError::PrecisionLoss);
+            }
+            mantissa / divisor
+        };
+        if raw > i64::MAX as i128 {
+            Err(DecimalError::Overflow)
+        } else if raw < i64::MIN as i128 {
+            Err(DecimalError::Underflow)
+        } else {
+            Ok(Self::from_raw(raw as i64))
+        }
+    }
+
+    /// Converts a [`rust_decimal::Decimal`] to a `D64`, rounding any decimals
+    /// beyond 8 places with banker's rounding (round half to even).
+    ///
+    /// Only fails with `Overflow`/`Underflow` when the magnitude exceeds `D64`'s
+    /// range; a value smaller than one ULP simply rounds to zero.
+    pub fn from_rust_decimal_round(value: rust_decimal::Decimal) -> crate::Result<Self> {
+        let mantissa = value.mantissa();
+        let scale = value.scale();
+        let dp = Self::DECIMALS as u32;
+        let raw = if scale <= dp {
+            // See `from_rust_decimal`: unreachable for valid Decimals, but
+            // sign-classified for consistency.
+            match mantissa.checked_mul(10i128.pow(dp - scale)) {
+                Some(v) => v,
+                None => {
+                    return Err(if mantissa < 0 {
+                        DecimalError::Underflow
+                    } else {
+                        DecimalError::Overflow
+                    });
+                }
+            }
+        } else {
+            round_div_pow10_i128(mantissa, scale - dp)
+        };
+        if raw > i64::MAX as i128 {
+            Err(DecimalError::Overflow)
+        } else if raw < i64::MIN as i128 {
+            Err(DecimalError::Underflow)
+        } else {
+            Ok(Self::from_raw(raw as i64))
+        }
+    }
+}
+
+#[cfg(feature = "rust-decimal")]
+impl From<D64> for rust_decimal::Decimal {
+    /// Lossless conversion of a `D64` into a `rust_decimal::Decimal`.
+    #[inline]
+    fn from(value: D64) -> Self {
+        value.to_rust_decimal()
+    }
+}
+
+#[cfg(feature = "rust-decimal")]
+impl TryFrom<rust_decimal::Decimal> for D64 {
+    type Error = DecimalError;
+
+    /// Exact conversion of a `rust_decimal::Decimal` to a `D64` (see
+    /// [`D64::from_rust_decimal`]).
+    #[inline]
+    fn try_from(value: rust_decimal::Decimal) -> crate::Result<Self> {
+        Self::from_rust_decimal(value)
+    }
+}
+
+// ============================================================================
 // Integer Conversions
 // ============================================================================
 
