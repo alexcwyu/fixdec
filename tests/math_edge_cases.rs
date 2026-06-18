@@ -301,6 +301,47 @@ fn d96_from_str_trims_trailing_fractional_zeros() {
     assert!(D96::from_str("1.0000000000001").is_err());
 }
 
+// ===========================================================================
+// from_str: scientific / E-notation ("1.5e3", "2.5E-7", ...). A positive
+// exponent can make an otherwise over-precise mantissa representable.
+// ===========================================================================
+
+#[test]
+fn d64_from_str_scientific() {
+    assert_eq!(D64::from_str("1e6").unwrap(), d64("1000000"));
+    assert_eq!(D64::from_str("1.5e3").unwrap(), d64("1500"));
+    assert_eq!(D64::from_str("1.5E-3").unwrap(), d64("0.0015"));
+    assert_eq!(D64::from_str("-2.5e2").unwrap(), d64("-250"));
+    assert_eq!(D64::from_str("1E+6").unwrap(), d64("1000000"));
+    assert_eq!(D64::from_str("1e0").unwrap(), d64("1"));
+    assert_eq!(D64::from_str("0e100").unwrap(), D64::ZERO);
+    // mantissa has 9 dp but the exponent shifts it to 7 dp -> representable
+    assert_eq!(D64::from_str("1.234567891e2").unwrap(), d64("123.4567891"));
+    // agrees with the plain form
+    assert_eq!(D64::from_str("1.5e3").unwrap(), D64::from_str("1500").unwrap());
+    // boundary: D64::MAX is reachable via scientific notation
+    assert_eq!(D64::from_str("9.223372036854775807e10").unwrap(), D64::MAX);
+    // errors
+    assert!(D64::from_str("1e").is_err()); // no exponent
+    assert!(D64::from_str("1e1.5").is_err()); // non-integer exponent
+    assert!(D64::from_str("1.2.3e1").is_err()); // malformed mantissa
+    assert!(D64::from_str("1e-10").is_err()); // 1e-10 has 10 dp -> PrecisionLoss
+    assert!(D64::from_str("1e999").is_err()); // overflow
+    assert!(D64::from_str("e5").is_err()); // empty mantissa
+}
+
+#[test]
+fn d96_from_str_scientific() {
+    assert_eq!(D96::from_str("1e6").unwrap(), d96("1000000"));
+    assert_eq!(D96::from_str("1.5e-9").unwrap(), d96("0.0000000015"));
+    assert_eq!(D96::from_str("1e-12").unwrap(), d96("0.000000000001"));
+    assert_eq!(D96::from_str("-3.14e2").unwrap(), d96("-314"));
+    // mantissa 12 dp, exponent +3 -> 9 dp, representable
+    assert_eq!(D96::from_str("1.234567890123e3").unwrap(), d96("1234.567890123"));
+    assert!(D96::from_str("1e-13").is_err()); // 13 dp -> PrecisionLoss
+    assert!(D96::from_str("1e999").is_err()); // overflow
+}
+
 #[test]
 fn d64_signum_abs_consistency() {
     assert_eq!(d64("5").signum(), 1);

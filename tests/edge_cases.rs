@@ -105,7 +105,12 @@ fn d64_parse_valid_forms() {
 
 #[test]
 fn d64_parse_invalid_forms() {
-    for bad in ["", "  ", "-", "+", ".", "abc", "1.2.3", "--1", "1e5", "1 2", "0x10", "1.-2"] {
+    // Note: "1e5" is now VALID (scientific notation). Malformed scientific forms
+    // ("1e", "e", "1e+", "1e5e3") must still be rejected.
+    for bad in [
+        "", "  ", "-", "+", ".", "abc", "1.2.3", "--1", "1 2", "0x10", "1.-2", "1e", "e", "1e+",
+        "1e5e3",
+    ] {
         assert!(
             D64::from_str(bad).is_err(),
             "expected parse error for {bad:?}"

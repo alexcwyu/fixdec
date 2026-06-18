@@ -1982,6 +1982,11 @@ impl D96 {
 
         let bytes = s.as_bytes();
 
+        // Scientific / E-notation: dispatch to a dedicated digit-level parser.
+        if bytes.iter().any(|&b| b == b'e' || b == b'E') {
+            return Self::from_scientific_bytes(bytes);
+        }
+
         // Quick length check
         if bytes.len() > 48 {
             return Err(DecimalError::InvalidFormat);
@@ -2062,6 +2067,119 @@ impl D96 {
             return Err(DecimalError::Overflow);
         }
 
+        Ok(Self { value })
+    }
+
+    /// Digit-level parser for scientific / E-notation (`"1.5e3"`, `"2.5E-7"`).
+    ///
+    /// Computes `magnitude = M * 10^(exp - frac_len + DECIMALS)` directly from
+    /// the significand digits, so a positive exponent can rescue an otherwise
+    /// over-precise mantissa. Allocation free, so it stays usable in `no_std`.
+    fn from_scientific_bytes(bytes: &[u8]) -> crate::Result<Self> {
+        let e_pos = bytes
+            .iter()
+            .position(|&b| b == b'e' || b == b'E')
+            .ok_or(DecimalError::InvalidFormat)?;
+        let mantissa = &bytes[..e_pos];
+        let exp_bytes = &bytes[e_pos + 1..];
+
+        // --- exponent (signed integer) ---
+        if exp_bytes.is_empty() {
+            return Err(DecimalError::InvalidFormat);
+        }
+        let (exp_neg, exp_start) = match exp_bytes[0] {
+            b'-' => (true, 1),
+            b'+' => (false, 1),
+            _ => (false, 0),
+        };
+        if exp_start >= exp_bytes.len() {
+            return Err(DecimalError::InvalidFormat);
+        }
+        let mut exp: i64 = 0;
+        for &b in &exp_bytes[exp_start..] {
+            let digit = b.wrapping_sub(b'0');
+            if digit > 9 {
+                return Err(DecimalError::InvalidFormat);
+            }
+            // Cap the magnitude: anything past 10^6 is unconditionally out of
+            // range / precision-lost, and the cap keeps `net` within i64.
+            exp = (exp * 10 + digit as i64).min(1_000_000);
+        }
+        let exp = if exp_neg { -exp } else { exp };
+
+        // --- mantissa: magnitude M and number of fractional digits ---
+        if mantissa.is_empty() {
+            return Err(DecimalError::InvalidFormat);
+        }
+        let (is_negative, mant_start) = match mantissa[0] {
+            b'-' => (true, 1),
+            b'+' => (false, 1),
+            _ => (false, 0),
+        };
+        if mant_start >= mantissa.len() {
+            return Err(DecimalError::InvalidFormat);
+        }
+        let mut m: i128 = 0;
+        let mut frac_len: i64 = 0;
+        let mut seen_dot = false;
+        let mut seen_digit = false;
+        for &b in &mantissa[mant_start..] {
+            if b == b'.' {
+                if seen_dot {
+                    return Err(DecimalError::InvalidFormat);
+                }
+                seen_dot = true;
+                continue;
+            }
+            let digit = b.wrapping_sub(b'0');
+            if digit > 9 {
+                return Err(DecimalError::InvalidFormat);
+            }
+            seen_digit = true;
+            m = m
+                .checked_mul(10)
+                .and_then(|v| v.checked_add(digit as i128))
+                .ok_or(DecimalError::Overflow)?;
+            if seen_dot {
+                frac_len += 1;
+            }
+        }
+        if !seen_digit {
+            return Err(DecimalError::InvalidFormat);
+        }
+        if m == 0 {
+            return Ok(Self::ZERO); // 0eN == 0 regardless of the exponent
+        }
+
+        // raw magnitude = M * 10^(exp - frac_len + DECIMALS)
+        let net = exp - frac_len + Self::DECIMALS as i64;
+        let magnitude: i128 = if net >= 0 {
+            if net > 38 {
+                return Err(DecimalError::Overflow); // 10^net exceeds i128 (m != 0)
+            }
+            m.checked_mul(10i128.pow(net as u32))
+                .ok_or(DecimalError::Overflow)?
+        } else {
+            let k = -net;
+            if k > 38 {
+                return Err(DecimalError::PrecisionLoss); // |value| below one ULP, nonzero
+            }
+            let div = 10i128.pow(k as u32);
+            if m % div != 0 {
+                return Err(DecimalError::PrecisionLoss);
+            }
+            m / div
+        };
+
+        // Apply sign and validate against the 96-bit range.
+        let value = if is_negative {
+            magnitude.checked_neg().ok_or(DecimalError::Overflow)?
+        } else {
+            magnitude
+        };
+        if !(Self::MIN.value..=Self::MAX.value).contains(&value) {
+            return Err(DecimalError::Overflow);
+        }
         Ok(Self { value })
     }
 
