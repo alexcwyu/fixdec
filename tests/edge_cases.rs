@@ -138,10 +138,10 @@ fn d64_max_string_roundtrip() {
     assert_eq!(D64::MAX.to_string(), "92233720368.54775807");
     assert_eq!(D64::from_str(&D64::MAX.to_string()).unwrap(), D64::MAX);
 
-    // KNOWN LIMITATION: MIN is not string-round-trippable — parsing computes the
-    // magnitude (2^63) before applying the sign, which overflows i64.
+    // MIN now round-trips too (parsing builds the magnitude in i128 and applies
+    // the sign with asymmetric bounds, so -2^63 is reachable).
     assert_eq!(D64::MIN.to_string(), "-92233720368.54775808");
-    assert!(D64::from_str(&D64::MIN.to_string()).is_err());
+    assert_eq!(D64::from_str(&D64::MIN.to_string()).unwrap(), D64::MIN);
 }
 
 // ===========================================================================

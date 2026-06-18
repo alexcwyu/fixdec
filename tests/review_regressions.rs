@@ -167,3 +167,44 @@ fn d96_floor_saturates_near_min() {
     assert!(D96::from_raw_checked(f.to_raw()).is_some());
     assert!(f >= D96::MIN);
 }
+
+// ============================================================================
+// [10] D64::MIN must round-trip through its own Display -> from_str_exact.
+// ============================================================================
+
+#[test]
+fn d64_min_string_roundtrips() {
+    let s = format!("{}", D64::MIN);
+    assert_eq!(s, "-92233720368.54775808");
+    assert_eq!(D64::from_str_exact(&s), Ok(D64::MIN));
+    assert_eq!(D64::from_str(&s), Ok(D64::MIN));
+    // genuine over/underflow is still rejected
+    assert_eq!(
+        D64::from_str_exact("-92233720368.54775809"),
+        Err(DecimalError::Overflow)
+    );
+    // +2^63 (one past i64::MAX) is too big on the positive side
+    assert_eq!(
+        D64::from_str_exact("92233720368.54775808"),
+        Err(DecimalError::Overflow)
+    );
+}
+
+// ============================================================================
+// [6] D64 `%` operator: MIN % -ulp overflows (like integer %). It now routes
+//     through checked_rem and panics with a clear message (documented).
+// ============================================================================
+
+#[test]
+fn d64_rem_operator_matches_checked_for_normal_inputs() {
+    let a = D64::from_str("10.5").unwrap();
+    let b = D64::from_str("3.2").unwrap();
+    assert_eq!(a % b, a.checked_rem(b).unwrap());
+}
+
+#[test]
+#[should_panic]
+fn d64_rem_min_by_neg_ulp_panics() {
+    // checked_rem returns None here; the operator must panic, not silently wrap.
+    let _ = D64::MIN % D64::from_raw(-1);
+}

@@ -1611,20 +1611,26 @@ impl D64 {
             0
         };
 
-        // Combine parts (both positive at this point)
-        let int_scaled = integer_part
-            .checked_mul(Self::SCALE)
+        // Combine the (non-negative) magnitude in i128 so the most-negative
+        // value is reachable: D64::MIN has magnitude 2^63 = i64::MAX + 1, which
+        // would overflow if accumulated as i64 before the sign is applied.
+        let magnitude = (integer_part as i128)
+            .checked_mul(Self::SCALE as i128)
+            .and_then(|v| v.checked_add(fractional_value as i128))
             .ok_or(DecimalError::Overflow)?;
 
-        let abs_value = int_scaled
-            .checked_add(fractional_value as i64)
-            .ok_or(DecimalError::Overflow)?;
-
-        // Apply sign at the end
+        // Apply sign with asymmetric i64 bounds: negatives may reach -2^63.
         let value = if is_negative {
-            abs_value.checked_neg().ok_or(DecimalError::Overflow)?
+            let signed = -magnitude;
+            if signed < i64::MIN as i128 {
+                return Err(DecimalError::Overflow);
+            }
+            signed as i64
         } else {
-            abs_value
+            if magnitude > i64::MAX as i128 {
+                return Err(DecimalError::Overflow);
+            }
+            magnitude as i64
         };
 
         Ok(Self { value })
@@ -2108,12 +2114,13 @@ impl Div for D64 {
 impl Rem for D64 {
     type Output = Self;
 
-    /// Remainder. Panics if `rhs` is zero (like integer `%`).
+    /// Remainder. Panics if `rhs` is zero, or on `MIN % -ulp` where the
+    /// remainder overflows (both like the built-in integer `%`). Routes through
+    /// [`checked_rem`](Self::checked_rem) for consistency with the other operators.
     #[inline(always)]
     fn rem(self, rhs: Self) -> Self::Output {
-        Self {
-            value: self.value % rhs.value,
-        }
+        self.checked_rem(rhs)
+            .expect("attempt to calculate the remainder with overflow or by zero")
     }
 }
 
