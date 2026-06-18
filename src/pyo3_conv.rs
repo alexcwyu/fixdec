@@ -21,26 +21,32 @@ use alloc::string::{String, ToString};
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyFloat, PyInt};
+use pyo3::sync::PyOnceLock;
+use pyo3::types::{PyBool, PyFloat, PyInt, PyType};
 
 use crate::{D64, D96};
 
+/// The `decimal.Decimal` class, imported once per interpreter and cached. Avoids
+/// a per-conversion `import("decimal").getattr("Decimal")` on every hot call.
+fn decimal_type(py: Python<'_>) -> PyResult<&Bound<'_, PyType>> {
+    static DECIMAL: PyOnceLock<Py<PyType>> = PyOnceLock::new();
+    DECIMAL.import(py, "decimal", "Decimal")
+}
+
 /// Builds a Python `decimal.Decimal` from an exact decimal string.
 fn to_py_decimal<'py>(py: Python<'py>, s: &str) -> PyResult<Bound<'py, PyAny>> {
-    py.import("decimal")?.getattr("Decimal")?.call1((s,))
+    decimal_type(py)?.call1((s,))
 }
 
 /// Normalizes a Python `Decimal` or numeric `str` to a fixed-point decimal
 /// string (never scientific). `str(Decimal("0.0000001"))` is `"1E-7"`, which the
-/// parsers reject; `format(Decimal(ob), "f")` yields `"0.0000001"` instead, so
-/// every representable value round-trips. Floats and ints are handled by the
-/// callers before reaching here.
+/// parsers reject; `Decimal(ob).__format__("f")` (i.e. `format(., "f")`) yields
+/// `"0.0000001"` instead, so every representable value round-trips. Floats and
+/// ints are handled by the callers before reaching here.
 fn fixed_point_string(ob: &Bound<'_, PyAny>) -> PyResult<String> {
-    let py = ob.py();
-    let as_decimal = py.import("decimal")?.getattr("Decimal")?.call1((ob,))?;
-    py.import("builtins")?
-        .getattr("format")?
-        .call1((as_decimal, "f"))?
+    let as_decimal = decimal_type(ob.py())?.call1((ob,))?;
+    as_decimal
+        .call_method1("__format__", ("f",))?
         .extract::<String>()
 }
 

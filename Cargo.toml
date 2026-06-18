@@ -90,3 +90,7 @@ harness = false
 name = "bench_serde"
 harness = false
 required-features = ["serde"]
+
+[[example]]
+name = "bench_pyo3"
+required-features = ["pyo3"]

@@ -14,6 +14,7 @@ use std::time::Instant;
 use fixdec::{D64, D96};
 use pyo3::prelude::*;
 use pyo3::types::PyAnyMethods;
+use rust_decimal::Decimal as RustDecimal;
 
 const N: usize = 1_000_000;
 
@@ -45,6 +46,9 @@ fn main() {
 
         let d64 = D64::from_str("1234.5678").unwrap();
         let d96 = D96::from_str("1234.567890123").unwrap();
+        // rust_decimal has NO native pyo3 support, so the fair comparison is the
+        // manual via-string conversion you would otherwise hand-write.
+        let rd = RustDecimal::from_str("1234.5678").unwrap();
 
         // Pre-built Python objects for the extraction benchmarks.
         let py_dec = py_decimal(py, "1234.5678");
@@ -58,6 +62,9 @@ fn main() {
         });
         bench("  D96  -> Decimal (into_pyobject)", || {
             black_box(black_box(d96).into_pyobject(py).unwrap());
+        });
+        bench("  rust_decimal -> Decimal (manual via str)", || {
+            black_box(py_decimal(py, &black_box(rd).to_string()));
         });
 
         println!("\nPython -> Rust (extract):");
@@ -76,6 +83,14 @@ fn main() {
         bench("  Decimal -> D96 (extract)", || {
             black_box(black_box(&py_dec).extract::<D96>().unwrap());
         });
+        bench("  Decimal -> rust_decimal (manual via str)", || {
+            let s: String = black_box(&py_dec)
+                .call_method1("__format__", ("f",))
+                .unwrap()
+                .extract()
+                .unwrap();
+            black_box(RustDecimal::from_str(&s).unwrap());
+        });
 
         println!("\nRound trip:");
         bench("  D64 -> Decimal -> D64", || {
@@ -92,6 +107,12 @@ fn main() {
         });
         bench("  pure Rust: D64::to_string", || {
             black_box(black_box(d64).to_string());
+        });
+        bench("  pure Rust: RustDecimal::from_str", || {
+            black_box(RustDecimal::from_str(black_box("1234.5678")).unwrap());
+        });
+        bench("  pure Rust: RustDecimal::to_string", || {
+            black_box(black_box(rd).to_string());
         });
     });
 }
