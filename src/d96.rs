@@ -985,7 +985,13 @@ impl D96 {
         if rhs.value == 0 {
             self.value == 0
         } else {
-            self.value % rhs.value == 0
+            // Route through checked_rem for totality (matches D64): the native
+            // `%` overflows for i128::MIN % -1. D96::MIN is -2^95 (not i128::MIN)
+            // so it cannot overflow today, but this keeps the twins identical.
+            match self.value.checked_rem(rhs.value) {
+                Some(r) => r == 0,
+                None => true,
+            }
         }
     }
 
@@ -1909,7 +1915,10 @@ impl D96 {
 
     /// Converts to f64.
     ///
-    /// Note: May lose precision for very large values.
+    /// Note: the result is only approximately the nearest `f64`. Because it is
+    /// reconstructed from separate integer and fractional parts, it can differ
+    /// from the exact decimal value by up to ~1 ULP at any magnitude (not only
+    /// for very large values).
     #[inline(always)]
     pub fn to_f64(self) -> f64 {
         let integer_part = self.value / Self::SCALE;

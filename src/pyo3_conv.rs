@@ -45,9 +45,12 @@ fn to_py_decimal<'py>(py: Python<'py>, s: &str) -> PyResult<Bound<'py, PyAny>> {
 /// ints are handled by the callers before reaching here.
 fn fixed_point_string(ob: &Bound<'_, PyAny>) -> PyResult<String> {
     let decimal = decimal_type(ob.py())?;
-    if ob.is_instance(decimal.as_any())? {
-        // Fast path: already a `Decimal`, so format it directly and skip the
-        // `Decimal(ob)` re-wrap (the common case for Decimal arguments).
+    if ob.get_type().is(decimal) {
+        // Fast path: an EXACT `Decimal`, so format it directly and skip the
+        // `Decimal(ob)` re-wrap (the common case for Decimal arguments). We
+        // intentionally require the exact type, not `is_instance`: a `Decimal`
+        // subclass may override `__format__` and return something other than the
+        // numeric value, so subclasses fall through to the base wrap below.
         ob.call_method1("__format__", ("f",))?.extract::<String>()
     } else {
         // `str` (or anything Decimal-constructible): build a `Decimal` first so
@@ -102,8 +105,11 @@ impl<'py> FromPyObject<'py> for D64 {
             return D64::from_i64(i).ok_or_else(|| PyValueError::new_err("integer out of D64 range"));
         }
         // Decimal or str: normalize to a fixed-point string, then parse exactly.
-        // Map any failure (decimal.InvalidOperation, TypeError, non-finite) to a
-        // ValueError so the contract is uniform.
+        // fixed_point_string fails (-> ValueError) for objects that are not
+        // Decimal-constructible (TypeError / InvalidOperation). Non-finite
+        // Decimals (Infinity / NaN) instead FORMAT successfully here as
+        // "Infinity"/"NaN" and are rejected by from_str below. Either way the
+        // caller sees a ValueError, so the contract stays uniform.
         let s = fixed_point_string(ob)
             .map_err(|_| PyValueError::new_err("value is not a decimal representable as D64"))?;
         D64::from_str(&s).map_err(|e| PyValueError::new_err(e.to_string()))
@@ -152,8 +158,11 @@ impl<'py> FromPyObject<'py> for D96 {
             return D96::from_i128(i).ok_or_else(|| PyValueError::new_err("integer out of D96 range"));
         }
         // Decimal or str: normalize to a fixed-point string, then parse exactly.
-        // Map any failure (decimal.InvalidOperation, TypeError, non-finite) to a
-        // ValueError so the contract is uniform.
+        // fixed_point_string fails (-> ValueError) for objects that are not
+        // Decimal-constructible (TypeError / InvalidOperation). Non-finite
+        // Decimals (Infinity / NaN) instead FORMAT successfully here as
+        // "Infinity"/"NaN" and are rejected by from_str below. Either way the
+        // caller sees a ValueError, so the contract stays uniform.
         let s = fixed_point_string(ob)
             .map_err(|_| PyValueError::new_err("value is not a decimal representable as D96"))?;
         D96::from_str(&s).map_err(|e| PyValueError::new_err(e.to_string()))

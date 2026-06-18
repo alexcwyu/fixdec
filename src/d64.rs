@@ -779,7 +779,13 @@ impl D64 {
         if rhs.value == 0 {
             self.value == 0
         } else {
-            self.value % rhs.value == 0
+            // `self.value % rhs.value` overflows for `i64::MIN % -1`; route
+            // through checked_rem so the predicate is total. The only None case
+            // is MIN % -1, whose true remainder is 0 (hence an exact multiple).
+            match self.value.checked_rem(rhs.value) {
+                Some(r) => r == 0,
+                None => true,
+            }
         }
     }
 
@@ -1541,7 +1547,10 @@ impl D64 {
 
     /// Converts to f64.
     ///
-    /// Note: May lose precision for very large values.
+    /// Note: the result is only approximately the nearest `f64`. Because it is
+    /// reconstructed from separate integer and fractional parts, it can differ
+    /// from the exact decimal value by up to ~1 ULP at any magnitude (not only
+    /// for very large values).
     #[inline(always)]
     pub fn to_f64(self) -> f64 {
         let integer_part = Self::div_by_scale_i64(self.value);

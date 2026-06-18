@@ -172,3 +172,45 @@ fn out_of_range_and_precision_loss_raise() {
         );
     });
 }
+
+// ---------------------------------------------------------------------------
+// Regression [review round 3]: a Decimal SUBCLASS that overrides __format__
+// must not hijack extraction. We require the EXACT Decimal type for the
+// fast path, so subclasses fall through to the base `Decimal(ob)` wrap and the
+// TRUE numeric value is used (not the overridden __format__ string).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn decimal_subclass_overriding_format_uses_true_value() {
+    Python::attach(|py| {
+        // class Evil(Decimal): __format__ -> always "999.0"
+        let locals = pyo3::types::PyDict::new(py);
+        py.run(
+            std::ffi::CString::new(
+                "import decimal\n\
+                 class Evil(decimal.Decimal):\n\
+                 \x20   def __format__(self, spec):\n\
+                 \x20       return '999.0'\n\
+                 e = Evil('1.23')\n",
+            )
+            .unwrap()
+            .as_c_str(),
+            None,
+            Some(&locals),
+        )
+        .unwrap();
+        let e = locals.get_item("e").unwrap().unwrap();
+
+        // Sanity: the override really is active in Python.
+        assert_eq!(
+            format!("{}", e.call_method1("__format__", ("f",)).unwrap()),
+            "999.0"
+        );
+
+        // Extraction must see the true value 1.23, not 999.0.
+        let d64: D64 = e.extract().unwrap();
+        assert_eq!(d64, D64::from_str("1.23").unwrap());
+        let d96: D96 = e.extract().unwrap();
+        assert_eq!(d96, D96::from_str("1.23").unwrap());
+    });
+}

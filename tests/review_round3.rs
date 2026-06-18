@@ -264,3 +264,20 @@ fn d96_integer_tryfrom_is_range_checked() {
     assert_eq!(D96::try_from(u64::MAX), Err(DecimalError::Overflow));
     assert_eq!(D96::try_from(i64::MIN), Err(DecimalError::Overflow));
 }
+
+// ===========================================================================
+// [6] is_multiple_of must not panic on the signed-MIN % -ulp overflow case
+// ===========================================================================
+
+#[test]
+fn is_multiple_of_signed_min_no_overflow_panic() {
+    // i64::MIN % -1 overflows the native `%`; the predicate must stay total.
+    assert!(D64::MIN.is_multiple_of(D64::from_raw(-1)));
+    assert!(D96::MIN.is_multiple_of(D96::from_raw(-1)));
+
+    // Ordinary behaviour is unchanged.
+    assert!(D64::from_i32(6).is_multiple_of(D64::from_i32(3)));
+    assert!(!D64::from_i32(7).is_multiple_of(D64::from_i32(3)));
+    assert!(D64::ZERO.is_multiple_of(D64::ZERO));
+    assert!(!D64::ONE.is_multiple_of(D64::ZERO));
+}
