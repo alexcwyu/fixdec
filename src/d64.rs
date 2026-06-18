@@ -3279,9 +3279,9 @@ mod conversion_tests {
 
     #[test]
     fn test_from_f64() {
-        let d = D64::from_f64(3.14159265).unwrap();
+        let d = D64::from_f64(3.04827165).unwrap();
         let f = d.to_f64();
-        assert!((f - 3.14159265).abs() < 1e-8);
+        assert!((f - 3.04827165).abs() < 1e-8);
     }
 
     #[test]
@@ -3295,7 +3295,7 @@ mod conversion_tests {
     fn test_try_from() {
         assert!(D64::try_from(42i64).is_ok());
         assert!(D64::try_from(i64::MAX).is_err());
-        assert!(D64::try_from(3.14f64).is_ok());
+        assert!(D64::try_from(3.07f64).is_ok());
         assert!(D64::try_from(f64::NAN).is_err());
     }
 
