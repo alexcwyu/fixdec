@@ -2747,7 +2747,8 @@ impl D96 {
             pos += format_fractional_fixed_width(rounded, precision_capped, &mut buffer[pos..]);
         }
 
-        let s = unsafe { core::str::from_utf8_unchecked(&buffer[..pos]) };
+        // The buffer is always ASCII (digits, '.', '-'), so this never errors.
+        let s = core::str::from_utf8(&buffer[..pos]).unwrap();
         f.write_str(s)
     }
 }
@@ -2765,7 +2766,8 @@ impl fmt::Display for D96 {
 
         let mut buffer = [0u8; 48];
         let len = self.format_to_buffer(&mut buffer);
-        let s = unsafe { core::str::from_utf8_unchecked(&buffer[..len]) };
+        // The buffer is always ASCII (digits, '.', '-'), so this never errors.
+        let s = core::str::from_utf8(&buffer[..len]).unwrap();
         f.write_str(s)
     }
 }
