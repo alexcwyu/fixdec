@@ -178,13 +178,6 @@ fn d64_powi_recip_sqrt() {
     assert_eq!(D64::from_i32(2).powi(-1).unwrap(), D64::from_str("0.5").unwrap());
     assert_eq!(D64::ZERO.recip(), None);
     assert_eq!(D64::from_i32(4).recip().unwrap(), D64::from_str("0.25").unwrap());
-
-    assert_eq!(D64::ZERO.sqrt(), Some(D64::ZERO));
-    assert_eq!(D64::ONE.sqrt(), Some(D64::ONE));
-    assert_eq!(D64::from_i32(-1).sqrt(), None);
-    // sqrt of a perfect square is exact (to the last ulp)
-    let two = D64::from_i32(4).sqrt().unwrap();
-    assert!((two.to_f64() - 2.0).abs() < 1e-7, "sqrt(4) = {two}");
 }
 
 #[test]

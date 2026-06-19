@@ -100,13 +100,6 @@ fn bench_comparison(c: &mut Criterion) {
     });
 }
 
-fn bench_sqrt(c: &mut Criterion) {
-    c.bench_function("d64_sqrt", |b| {
-        let d = D64::from_str("123.456789").unwrap();
-        b.iter(|| black_box(black_box(d).sqrt().unwrap()));
-    });
-}
-
 fn bench_powi(c: &mut Criterion) {
     c.bench_function("d64_powi", |b| {
         let d = D64::from_str("1.05").unwrap();
@@ -144,7 +137,6 @@ criterion_group!(
     bench_rounding,
     bench_binary_write_read,
     bench_comparison,
-    bench_sqrt,
     bench_powi,
     bench_percentage_of,
     bench_add_percent,

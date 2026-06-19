@@ -1577,73 +1577,6 @@ impl D96 {
         }
     }
 
-    /// Returns the square root of `self` using Newton's method.
-    #[must_use = "this returns the result of the operation, without modifying the original"]
-    pub fn sqrt(self) -> Option<Self> {
-        if self.value < 0 {
-            return None;
-        }
-
-        if self.value == 0 {
-            return Some(Self::ZERO);
-        }
-
-        if self.value == Self::SCALE {
-            return Some(Self::ONE);
-        }
-
-        // Newton's method for 96-bit values
-        // We work with 128-bit to avoid overflow during iteration
-
-        // Initial guess: use integer square root of the raw value
-        let raw_sqrt_approx = isqrt_u128(self.value.unsigned_abs());
-
-        // Scale the initial guess appropriately
-        // Since self.value represents X * 10^12, we want sqrt(X * 10^12) = sqrt(X) * 10^6
-        let sqrt_scale = 1_000_000i128; // 10^6 (sqrt of 10^12)
-        let mut x = raw_sqrt_approx as i128 * sqrt_scale;
-
-        const MAX_ITERATIONS: u32 = 20;
-        let s = self.value * Self::SCALE; // This is safe for 96-bit values
-
-        for _ in 0..MAX_ITERATIONS {
-            if x == 0 {
-                break;
-            }
-
-            let x_next = (x + s / x) / 2;
-
-            // Check for convergence
-            let diff = if x_next > x { x_next - x } else { x - x_next };
-
-            if diff <= 1 {
-                // Converged - check if result fits in 96-bit range
-                if x_next > Self::MAX.value || x_next < Self::MIN.value {
-                    return None;
-                }
-                return Some(Self { value: x_next });
-            }
-
-            x = x_next;
-        }
-
-        // Return best approximation after max iterations
-        if x > Self::MAX.value || x < Self::MIN.value {
-            None
-        } else {
-            Some(Self { value: x })
-        }
-    }
-
-    /// Checked square root. Returns an error if `self` is negative.
-    #[inline(always)]
-    #[must_use = "this returns the result of the operation, without modifying the original"]
-    pub fn try_sqrt(self) -> crate::Result<Self> {
-        match self.sqrt() {
-            Some(result) => Ok(result),
-            None => Err(DecimalError::InvalidFormat),
-        }
-    }
 }
 
 // ============================================================================
@@ -3573,41 +3506,6 @@ impl num_traits::Inv for D96 {
     }
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/// Compute 10^n at compile time for rounding operations (i128 version)
-/// Round-half-to-even division of an i128 `m` by `10^k`. Used by the lossy
-/// scale constructors so the FULL dropped fraction participates in rounding
-/// (dividing in stages and truncating first, as the old code did, biased the
-/// result toward zero). `k` must be > 0; returns 0 when `10^k` overflows i128.
-/// Integer square root for u128 using binary search
-const fn isqrt_u128(n: u128) -> u128 {
-    if n < 2 {
-        return n;
-    }
-
-    let mut left = 1u128;
-    let mut right = n;
-
-    while left <= right {
-        let mid = left + (right - left) / 2;
-
-        if mid <= n / mid {
-            let next_mid = mid + 1;
-            if next_mid > n / next_mid {
-                return mid;
-            }
-            left = mid + 1;
-        } else {
-            right = mid - 1;
-        }
-    }
-
-    right
-}
-
 #[cfg(test)]
 mod tests {
     use std::string::ToString;
@@ -4271,48 +4169,6 @@ mod math_tests {
         assert!((result.to_raw() - expected.to_raw()).abs() < 1_000_000);
     }
 
-    #[test]
-    fn test_sqrt_perfect_squares() {
-        let four = D96::from_raw(4_000_000_000_000); // 4.0
-        let sqrt_four = four.sqrt().unwrap();
-        assert_eq!(sqrt_four.to_raw(), 2_000_000_000_000); // 2.0
-
-        let nine = D96::from_raw(9_000_000_000_000); // 9.0
-        let sqrt_nine = nine.sqrt().unwrap();
-        assert_eq!(sqrt_nine.to_raw(), 3_000_000_000_000); // 3.0
-    }
-
-    #[test]
-    fn test_sqrt_non_perfect() {
-        let two = D96::from_raw(2_000_000_000_000); // 2.0
-        let sqrt_two = two.sqrt().unwrap();
-
-        // sqrt(2) ≈ 1.41421356237309504880
-        let expected = D96::from_raw(1_414_213_562_373);
-
-        // Check accuracy within reasonable tolerance
-        assert!((sqrt_two.to_raw() - expected.to_raw()).abs() < 100);
-    }
-
-    #[test]
-    fn test_sqrt_edge_cases() {
-        assert_eq!(D96::ZERO.sqrt().unwrap(), D96::ZERO);
-        assert_eq!(D96::ONE.sqrt().unwrap(), D96::ONE);
-
-        let neg = D96::from_raw(-1_000_000_000_000);
-        assert_eq!(neg.sqrt(), None);
-    }
-
-    #[test]
-    fn test_sqrt_verify() {
-        // Test that sqrt(x)^2 ≈ x
-        let x = D96::from_raw(5_000_000_000_000); // 5.0
-        let sqrt_x = x.sqrt().unwrap();
-        let squared = sqrt_x.checked_mul(sqrt_x).unwrap();
-
-        // Should be very close to original
-        assert!((squared.to_raw() - x.to_raw()).abs() < 1000);
-    }
 }
 
 #[cfg(test)]
@@ -4388,14 +4244,6 @@ mod result_tests {
         assert!(D96::MAX.try_powi(2).is_err());
     }
 
-    #[test]
-    fn test_try_sqrt() {
-        let four = D96::from_raw(4_000_000_000_000);
-        assert!(four.try_sqrt().is_ok());
-
-        let neg = D96::from_raw(-1_000_000_000_000);
-        assert!(neg.try_sqrt().is_err());
-    }
 }
 
 #[cfg(test)]

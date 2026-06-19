@@ -1235,74 +1235,6 @@ impl D64 {
         }
     }
 
-    /// Returns the square root of `self` using Newton's method.
-    ///
-    /// Returns `None` if `self` is negative.
-    ///
-    /// # Performance
-    /// Uses a maximum of 20 iterations of Newton's method.
-    /// Typically converges in 5-10 iterations for most values.
-    #[must_use = "this returns the result of the operation, without modifying the original"]
-    pub const fn sqrt(self) -> Option<Self> {
-        if self.value < 0 {
-            return None;
-        }
-
-        if self.value == 0 {
-            return Some(Self::ZERO);
-        }
-
-        if self.value == Self::SCALE {
-            return Some(Self::ONE);
-        }
-
-        // Newton's method: x_{n+1} = (x_n + S/x_n) / 2
-        // We work in i128 to avoid overflow
-
-        // Initial guess: use the integer square root of the raw value
-        let raw_sqrt_approx = isqrt(self.value as u64) as i128;
-        let mut x = raw_sqrt_approx * (Self::SCALE as i128).isqrt();
-
-        const MAX_ITERATIONS: u32 = 20;
-        let s = self.value as i128 * Self::SCALE as i128; // Scale up for precision
-
-        let mut i = 0;
-        while i < MAX_ITERATIONS {
-            let x_next = (x + s / x) / 2;
-
-            // Check for convergence (difference less than 1)
-            if (x_next - x).abs() <= 1 {
-                // Final result, scaled back down
-                let result = x_next;
-                if result > i64::MAX as i128 || result < i64::MIN as i128 {
-                    return None;
-                }
-                return Some(Self {
-                    value: result as i64,
-                });
-            }
-
-            x = x_next;
-            i += 1;
-        }
-
-        // Return best approximation after max iterations
-        if x > i64::MAX as i128 || x < i64::MIN as i128 {
-            None
-        } else {
-            Some(Self { value: x as i64 })
-        }
-    }
-
-    /// Checked square root. Returns an error if `self` is negative.
-    #[inline(always)]
-    #[must_use = "this returns the result of the operation, without modifying the original"]
-    pub const fn try_sqrt(self) -> crate::Result<Self> {
-        match self.sqrt() {
-            Some(result) => Ok(result),
-            None => Err(DecimalError::InvalidFormat),
-        }
-    }
 }
 
 // ============================================================================
@@ -3000,40 +2932,6 @@ impl num_traits::Inv for D64 {
     }
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/// Integer square root using binary search
-const fn isqrt(n: u64) -> u64 {
-    if n < 2 {
-        return n;
-    }
-
-    let mut left = 1u64;
-    let mut right = n;
-
-    while left <= right {
-        let mid = left + (right - left) / 2;
-
-        // Check if mid * mid == n (avoiding overflow)
-        if mid <= n / mid {
-            // mid^2 <= n
-            let next_mid = mid + 1;
-            if next_mid > n / next_mid {
-                // (mid+1)^2 > n, so mid is the answer
-                return mid;
-            }
-            left = mid + 1;
-        } else {
-            // mid^2 > n
-            right = mid - 1;
-        }
-    }
-
-    right
-}
-
 #[cfg(test)]
 mod tests {
     use std::string::ToString;
@@ -3599,48 +3497,6 @@ mod math_tests {
         assert!((result.to_raw() - expected.to_raw()).abs() < 100);
     }
 
-    #[test]
-    fn test_sqrt_perfect_squares() {
-        let four = D64::from_raw(400_000_000); // 4.0
-        let sqrt_four = four.sqrt().unwrap();
-        assert_eq!(sqrt_four.to_raw(), 200_000_000); // 2.0
-
-        let nine = D64::from_raw(900_000_000); // 9.0
-        let sqrt_nine = nine.sqrt().unwrap();
-        assert_eq!(sqrt_nine.to_raw(), 300_000_000); // 3.0
-    }
-
-    #[test]
-    fn test_sqrt_non_perfect() {
-        let two = D64::from_raw(200_000_000); // 2.0
-        let sqrt_two = two.sqrt().unwrap();
-
-        // sqrt(2) ≈ 1.41421356
-        let expected = D64::from_raw(141_421_356);
-
-        // Check accuracy within reasonable tolerance
-        assert!((sqrt_two.to_raw() - expected.to_raw()).abs() < 10);
-    }
-
-    #[test]
-    fn test_sqrt_edge_cases() {
-        assert_eq!(D64::ZERO.sqrt().unwrap(), D64::ZERO);
-        assert_eq!(D64::ONE.sqrt().unwrap(), D64::ONE);
-
-        let neg = D64::from_raw(-100_000_000);
-        assert_eq!(neg.sqrt(), None);
-    }
-
-    #[test]
-    fn test_sqrt_verify() {
-        // Test that sqrt(x)^2 ≈ x
-        let x = D64::from_raw(500_000_000); // 5.0
-        let sqrt_x = x.sqrt().unwrap();
-        let squared = sqrt_x.checked_mul(sqrt_x).unwrap();
-
-        // Should be very close to original
-        assert!((squared.to_raw() - x.to_raw()).abs() < 100);
-    }
 }
 
 #[cfg(test)]
@@ -3714,15 +3570,6 @@ mod result_tests {
         let two = D64::from_raw(200_000_000);
         assert!(two.try_powi(3).is_ok());
         assert!(D64::MAX.try_powi(2).is_err());
-    }
-
-    #[test]
-    fn test_try_sqrt() {
-        let four = D64::from_raw(400_000_000);
-        assert!(four.try_sqrt().is_ok());
-
-        let neg = D64::from_raw(-100_000_000);
-        assert!(neg.try_sqrt().is_err());
     }
 }
 

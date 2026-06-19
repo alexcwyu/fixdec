@@ -356,9 +356,6 @@ D64::PERCENT              // 0.01 (1%)
 ### Mathematical Operations
 
 ```rust
-// Square root
-let sqrt = x.sqrt()?;
-
 // Integer powers
 let squared = x.powi(2)?;
 let cubed = x.powi(3)?;
