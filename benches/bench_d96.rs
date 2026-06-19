@@ -2,7 +2,7 @@ use std::hint::black_box;
 use std::str::FromStr;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use fixdec::D96; // Replace with your actual crate name
+use fixdec::D96;
 
 fn bench_addition(c: &mut Criterion) {
     c.bench_function("d96_addition", |b| {
@@ -61,6 +61,17 @@ fn bench_price_times_quantity_mul_d96(c: &mut Criterion) {
     c.bench_function("d96_price_times_quantity_mul_d96", |b| {
         let price = D96::from_str("123.45").unwrap();
         let quantity = D96::from_i128(1000).unwrap();
+        b.iter(|| black_box(black_box(price) * black_box(quantity)));
+    });
+}
+
+// Asymmetric large x small: the large operand exceeds 2^64 (raw of 50_000_000 is
+// 5e19 > 1.8e19) so checked_mul takes the 192-bit wide path. (Extending the fast
+// path to this shape was benchmarked and regressed, so it stays on the wide path.)
+fn bench_large_price_times_small_qty_d96(c: &mut Criterion) {
+    c.bench_function("d96_large_price_times_small_qty", |b| {
+        let price = D96::from_str("50000000").unwrap(); // raw 5e19 > 2^64
+        let quantity = D96::from_i128(3).unwrap();
         b.iter(|| black_box(black_box(price) * black_box(quantity)));
     });
 }
@@ -133,6 +144,7 @@ criterion_group!(
     bench_formatting,
     bench_price_times_quantity_mul_i64,
     bench_price_times_quantity_mul_d96,
+    bench_large_price_times_small_qty_d96,
     bench_sum,
     bench_rounding,
     bench_binary_write_read,

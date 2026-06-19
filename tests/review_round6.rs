@@ -72,6 +72,34 @@ fn from_basis_points_accepts_representable_large_inputs() {
     assert!(D96::from_basis_points(396_140_812_571_321_687_968).is_none());
 }
 
+// [perf] D96 checked_div gained a u128 fast path that must be BIT-IDENTICAL to the
+// 192-bit wide path. `big` (raw < u128::MAX/SCALE) takes the fast div path; `huge`
+// (raw above that) takes the wide path. checked_mul keeps its both-small fast path
+// (the asymmetric large x small case stays on the wide mul path — extending it
+// benchmarked worse). (Full-range mul/div-vs-oracle proptests in src cover the
+// rest; this pins the path boundaries.)
+#[test]
+fn d96_div_mul_fast_paths_match_wide_path() {
+    let big = D96::from_str("35000000000").unwrap(); // value 3.5e10, raw 3.5e22 (fast div)
+    let huge = D96::from_str("35000000000000000").unwrap(); // value 3.5e16, raw 3.5e28 (wide div)
+    for v in [D96::ONE, D96::from_str("123.456789").unwrap(), big, huge, D96::MAX] {
+        assert_eq!(v.checked_div(D96::ONE), Some(v), "v / 1 == v");
+        assert_eq!(v.checked_div(v), Some(D96::ONE), "v / v == 1");
+        assert_eq!(v.checked_mul(D96::ONE), Some(v), "v * 1 == v");
+    }
+    // Asymmetric large x small (large operand >= 2^64): uses the wide mul path.
+    let price = D96::from_str("50000000").unwrap(); // raw 5e19 > 2^64
+    assert_eq!(
+        price.checked_mul(D96::from_i128(3).unwrap()),
+        Some(D96::from_str("150000000").unwrap())
+    );
+    // Concrete truncated division (10 / 3 to 12 dp).
+    assert_eq!(
+        D96::from_str("10").unwrap().checked_div(D96::from_str("3").unwrap()),
+        Some(D96::from_str("3.333333333333").unwrap())
+    );
+}
+
 // [#4] `new(integer, fractional)` added `fractional` as raw sub-units without
 // checking its domain, so a value outside [0, SCALE) silently produced a wrong
 // number (`new(1, SCALE) == 2.0`; `new(1, -1) == 0.99999999`). It must enforce

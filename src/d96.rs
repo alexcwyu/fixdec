@@ -660,11 +660,12 @@ impl D96 {
         let a = self.value.unsigned_abs();
         let b = rhs.value.unsigned_abs();
 
-        // If product fits in 128 bits, we can use fast division
-        // sqrt(2^128 / 1) ≈ 2^64 ≈ 18 quintillion raw
-        // But we need: (a * b) / 10^12 to fit
-        // So: a * b < 2^128
-        // Safe threshold: both values < 2^64 (then product < 2^128)
+        // If product fits in 128 bits, we can use fast division.
+        // Safe threshold: both values < 2^64 (then product < 2^128). This cheap
+        // two-comparison guard is deliberately conservative: extending it to the
+        // asymmetric large x small case (via a `u128::MAX / b` guard division or a
+        // `u128::checked_mul`) was benchmarked and REGRESSED both the common path
+        // and the asymmetric path, so it is intentionally left out.
         const FAST_THRESHOLD: u128 = 1u128 << 64; // 2^64
 
         if a < FAST_THRESHOLD && b < FAST_THRESHOLD {
@@ -935,19 +936,24 @@ impl D96 {
             return None;
         }
 
-        let self_negative = self.value < 0;
-        let rhs_negative = rhs.value < 0;
-        let result_negative = self_negative != rhs_negative;
+        let result_negative = (self.value < 0) != (rhs.value < 0);
 
         let a = self.value.unsigned_abs();
         let b = rhs.value.unsigned_abs();
         let scale = Self::SCALE as u128;
 
-        // Multiply a (≤96 bits) by scale (≈40 bits) = ≤136 bits
-        let (prod_low, prod_high) = mul_u128_by_small(a, scale);
-
-        // Divide 192-bit number by b
-        let quotient = div_192_by_u128(prod_low, prod_high, b)?;
+        // Fast path: when `a * scale` fits in a u128 — the common case, any value
+        // with `|raw| <= u128::MAX / SCALE` (≈3.4e26, i.e. |value| <= ~3.4e14) — a
+        // single 128-bit divide gives exactly the same truncated quotient as the
+        // 192-bit path (which reduces to `low / b` when its high limb is zero). The
+        // `u128::MAX / scale` bound is a compile-time constant (SCALE is `const`).
+        let quotient = if a <= u128::MAX / scale {
+            (a * scale) / b
+        } else {
+            // Wide path: `a * scale` needs up to 136 bits.
+            let (prod_low, prod_high) = mul_u128_by_small(a, scale);
+            div_192_by_u128(prod_low, prod_high, b)?
+        };
 
         // A negative result may reach |MIN| = 2^95 (e.g. MIN / 1 == MIN); a
         // positive one caps at MAX = 2^95 - 1. Bound the unsigned magnitude
