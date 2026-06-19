@@ -366,12 +366,14 @@ impl D96 {
     /// Create from basis points (1 bp = 0.0001)
     /// Example: `from_basis_points(100)` → 0.01 (1%)
     pub const fn from_basis_points(bps: i128) -> Option<Self> {
-        let numerator = match bps.checked_mul(Self::SCALE) {
+        // 1 bp = 0.0001 = SCALE / 10_000, so the raw value is `bps * (SCALE / 10_000)`.
+        // Multiply by the SMALL factor (exact, since SCALE is divisible by 10_000)
+        // rather than `bps * SCALE / 10_000`, which overflows i128 far earlier than
+        // the final raw value would. Mirrors D64.
+        let value = match bps.checked_mul(Self::SCALE / 10_000) {
             Some(v) => v,
             None => return None,
         };
-
-        let value = numerator / 10_000;
 
         // Check 96-bit range
         if value > Self::MAX.value || value < Self::MIN.value {

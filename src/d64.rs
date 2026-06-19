@@ -284,16 +284,14 @@ impl D64 {
     /// Create from basis points (1 bp = 0.0001)
     /// Example: `from_basis_points(100)` → 0.01 (1%)
     pub const fn from_basis_points(bps: i64) -> Option<Self> {
-        // 1 bp = 0.0001 = SCALE / 10_000
-        // So bps basis points = (bps * SCALE) / 10_000
-        let numerator = match bps.checked_mul(Self::SCALE) {
-            Some(v) => v,
-            None => return None,
-        };
-
-        Some(Self {
-            value: numerator / 10_000,
-        })
+        // 1 bp = 0.0001 = SCALE / 10_000, so the raw value is `bps * (SCALE / 10_000)`.
+        // Multiply by the SMALL factor (exact, since SCALE is divisible by 10_000)
+        // rather than `bps * SCALE / 10_000`: the latter overflows i64 far earlier
+        // than the final raw value would, wrongly rejecting representable inputs.
+        match bps.checked_mul(Self::SCALE / 10_000) {
+            Some(value) => Some(Self { value }),
+            None => None,
+        }
     }
 
     /// Convert to basis points
