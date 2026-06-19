@@ -2,7 +2,7 @@ use std::hint::black_box;
 use std::str::FromStr;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use fixdec::D64; // Replace with your actual crate name
+use fixdec::D64;
 
 fn bench_addition(c: &mut Criterion) {
     c.bench_function("d64_addition", |b| {
@@ -46,6 +46,22 @@ fn bench_formatting(c: &mut Criterion) {
     c.bench_function("d64_formatting", |b| {
         let d = D64::from_str("123.456789").unwrap();
         b.iter(|| black_box(format!("{}", d)));
+    });
+}
+
+// Display cost WITHOUT the per-call allocation: writes into a reused buffer so the
+// measurement isolates the formatter from String allocation (the `format!` bench
+// above includes allocation, which matters for user-facing formatting).
+fn bench_formatting_into_buf(c: &mut Criterion) {
+    use core::fmt::Write;
+    c.bench_function("d64_formatting_into_buf", |b| {
+        let d = D64::from_str("123.456789").unwrap();
+        let mut buf = String::with_capacity(32);
+        b.iter(|| {
+            buf.clear();
+            write!(buf, "{}", black_box(d)).unwrap();
+            black_box(&buf);
+        });
     });
 }
 
@@ -131,6 +147,7 @@ criterion_group!(
     bench_division,
     bench_parsing,
     bench_formatting,
+    bench_formatting_into_buf,
     bench_price_times_quantity_mul_i64,
     bench_price_times_quantity_mul_d64,
     bench_sum,

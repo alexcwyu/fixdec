@@ -49,6 +49,22 @@ fn bench_formatting(c: &mut Criterion) {
     });
 }
 
+// Display cost WITHOUT the per-call allocation: writes into a reused buffer so the
+// measurement isolates the formatter from String allocation (the `format!` bench
+// above includes allocation, which matters for user-facing formatting).
+fn bench_formatting_into_buf(c: &mut Criterion) {
+    use core::fmt::Write;
+    c.bench_function("d96_formatting_into_buf", |b| {
+        let d = D96::from_str("123.456789").unwrap();
+        let mut buf = String::with_capacity(32);
+        b.iter(|| {
+            buf.clear();
+            write!(buf, "{}", black_box(d)).unwrap();
+            black_box(&buf);
+        });
+    });
+}
+
 fn bench_price_times_quantity_mul_i64(c: &mut Criterion) {
     c.bench_function("d96_price_times_quantity_mul_i64", |b| {
         let price = D96::from_str("123.45").unwrap();
@@ -142,6 +158,7 @@ criterion_group!(
     bench_division,
     bench_parsing,
     bench_formatting,
+    bench_formatting_into_buf,
     bench_price_times_quantity_mul_i64,
     bench_price_times_quantity_mul_d96,
     bench_large_price_times_small_qty_d96,
