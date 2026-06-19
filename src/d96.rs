@@ -331,13 +331,22 @@ impl D96 {
     /// Creates a D96 from integer and fractional parts at compile time
     /// Example: `new(123, 450_000_000_000)` → 123.45
     ///
-    /// The fractional part should always be positive.
-    /// For negative numbers, use a negative integer part:
+    /// The fractional part must be in `[0, SCALE)` (i.e. `0 <= fractional <
+    /// 10^DECIMALS`); it names a point strictly inside one whole unit. For
+    /// negative numbers, use a negative integer part:
     /// `new(-123, 450_000_000_000)` → -123.45
     ///
     /// # Panics
-    /// Panics if the value would overflow the 96-bit range.
+    /// Panics if the value would overflow the 96-bit range, or if `fractional`
+    /// is outside `[0, SCALE)`.
     pub const fn new(integer: i128, fractional: i128) -> Self {
+        // Reject an out-of-domain fractional part rather than silently rolling it
+        // into the integer part (`new(1, SCALE)` is not 2.0) or below zero
+        // (`new(1, -1)` is not 0.99999999).
+        if fractional < 0 || fractional >= Self::SCALE {
+            panic!("D96::new: fractional part must be in [0, SCALE)");
+        }
+
         let scaled = match integer.checked_mul(Self::SCALE) {
             Some(v) => v,
             None => panic!("overflow in D96::new: integer part too large"),

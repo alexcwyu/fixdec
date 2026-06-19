@@ -54,3 +54,42 @@ fn from_basis_points_accepts_representable_large_inputs() {
     );
     assert_eq!(D96::from_basis_points(100), Some(D96::from_str("0.01").unwrap()));
 }
+
+// [#4] `new(integer, fractional)` added `fractional` as raw sub-units without
+// checking its domain, so a value outside [0, SCALE) silently produced a wrong
+// number (`new(1, SCALE) == 2.0`; `new(1, -1) == 0.99999999`). It must enforce
+// `0 <= fractional < SCALE`, panicking like the other domain violations in this
+// const constructor.
+#[test]
+fn new_accepts_valid_fractional() {
+    assert_eq!(D64::new(1, 50_000_000), D64::from_str("1.5").unwrap());
+    assert_eq!(D64::new(-1, 50_000_000), D64::from_str("-1.5").unwrap());
+    assert_eq!(D64::new(0, 0), D64::ZERO);
+    assert_eq!(D64::new(1, D64::SCALE - 1), D64::from_raw(199_999_999));
+    assert_eq!(D96::new(2, 500_000_000_000), D96::from_str("2.5").unwrap());
+    assert_eq!(D96::new(1, D96::SCALE - 1), D96::from_raw(1_999_999_999_999));
+}
+
+#[test]
+#[should_panic(expected = "fractional")]
+fn d64_new_rejects_fractional_equal_to_scale() {
+    let _ = D64::new(1, D64::SCALE);
+}
+
+#[test]
+#[should_panic(expected = "fractional")]
+fn d64_new_rejects_negative_fractional() {
+    let _ = D64::new(1, -1);
+}
+
+#[test]
+#[should_panic(expected = "fractional")]
+fn d96_new_rejects_fractional_equal_to_scale() {
+    let _ = D96::new(1, D96::SCALE);
+}
+
+#[test]
+#[should_panic(expected = "fractional")]
+fn d96_new_rejects_negative_fractional() {
+    let _ = D96::new(1, -1);
+}
