@@ -19,14 +19,15 @@ use crate::{D64, DecimalError};
 /// Range: ±39,614,081,257,132.168796771975167
 /// Precision: 0.000000000001 (1 microGwei = 1000 wei)
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// NOTE: `FromBytes` is intentionally NOT derived (unlike `D64`). `FromBytes`
+// would let any 128-bit pattern become a `D96`, including values outside the
+// 96-bit range that D96 arithmetic relies on (see the `bytemuck` impls below for
+// the full rationale). Only the safe value->bytes direction (`IntoBytes`) and the
+// layout markers are derived; decode untrusted bytes through the checked
+// `try_read_*_bytes` readers instead.
 #[cfg_attr(
     feature = "zerocopy",
-    derive(
-        zerocopy::FromBytes,
-        zerocopy::IntoBytes,
-        zerocopy::Immutable,
-        zerocopy::KnownLayout
-    )
+    derive(zerocopy::IntoBytes, zerocopy::Immutable, zerocopy::KnownLayout)
 )]
 #[repr(transparent)]
 pub struct D96 {
@@ -3313,20 +3314,31 @@ impl<'de> Deserialize<'de> for D96 {
 }
 
 // ============================================================================
-// bytemuck Pod / Zeroable (zero-copy reinterpretation)
+// bytemuck NoUninit / Zeroable (one-way, value -> bytes only)
 // ============================================================================
 
-// SAFETY: `D96` is `#[repr(transparent)]` over `i128` (itself `Pod`), so it has
-// identical layout with no padding bytes, and every bit pattern is a valid
-// *i128*. D96's 96-bit range is a logical/API invariant only — NO `unsafe` code
-// in this crate relies on it for memory safety — so Pod is sound even though
-// zero-copy construction can yield a logically-out-of-96-bit value (which would
-// be rejected by `from_raw`). The all-zero bit pattern is `D96::ZERO`, so
-// `Zeroable` holds as well.
+// D96 deliberately does NOT implement `bytemuck::Pod` / `AnyBitPattern` (unlike
+// `D64`). `Pod` would make the bytes->value direction (`from_bytes`, `cast_slice`
+// from `&[u8]`) infallibly reinterpret ANY 128-bit pattern as a `D96`, including
+// values outside the 96-bit range. That is not merely a logical caveat: D96
+// arithmetic is written around the invariant that operands are <= 96 bits — e.g.
+// `checked_mul` feeds `unsigned_abs()` into `mul_96x96_to_192`, whose 64-bit limb
+// splitting silently truncates a >96-bit operand — so an out-of-range value
+// smuggled in through bytes would produce wrong results.
+//
+// Instead we implement only `NoUninit`, which enables the always-safe value->bytes
+// direction (`bytes_of`, `cast_slice` to `&[u8]`). To go bytes->value, use the
+// checked `try_read_*_bytes` readers (or `from_*_bytes`, which panics on an
+// out-of-range pattern). `D64` has no sub-range invariant (every `i64` is a valid
+// `D64`), so it keeps the full `Pod` surface.
+//
+// SAFETY: `D96` is `#[repr(transparent)]` over `i128`, so it has identical layout
+// with no padding/uninitialised bytes — the `NoUninit` requirement. The all-zero
+// bit pattern is `D96::ZERO`, so `Zeroable` holds as well.
 #[cfg(feature = "bytemuck")]
 unsafe impl bytemuck::Zeroable for D96 {}
 #[cfg(feature = "bytemuck")]
-unsafe impl bytemuck::Pod for D96 {}
+unsafe impl bytemuck::NoUninit for D96 {}
 
 // ============================================================================
 // num-traits Integration

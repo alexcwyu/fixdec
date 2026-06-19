@@ -136,8 +136,8 @@ fixdec = { version = "0.1", features = ["serde"] }
 | `alloc` | Enable `Vec` and `String` support |
 | `std` | Enable standard library and `Error` trait |
 | `serde` | Enable Serde serialization (requires `alloc`) |
-| `bytemuck` | `Pod`/`Zeroable` impls for zero-copy byte reinterpretation (`no_std`) |
-| `zerocopy` | `FromBytes`/`IntoBytes`/`Immutable`/`KnownLayout` derives (`no_std`) |
+| `bytemuck` | Zero-copy byte casts: `Pod` for `D64`, write-only `NoUninit` for `D96` (`no_std`) |
+| `zerocopy` | Byte-view derives: full `FromBytes`/`IntoBytes` for `D64`, write-only `IntoBytes` for `D96` (`no_std`) |
 | `num-traits` | `Zero`/`One`/`Bounded`/`Signed`/`Num`/`Checked*`/`Saturating`/`From`/`ToPrimitive`/`Inv` impls (`no_std`) |
 | `rust-decimal` | Conversions to/from [`rust_decimal`](https://crates.io/crates/rust_decimal)'s `Decimal` (`no_std`, requires `alloc`) |
 | `pyo3` | [PyO3](https://crates.io/crates/pyo3) interop: D64/D96 ↔ Python `decimal.Decimal` (`std`-only; not in `full`) |
@@ -206,6 +206,17 @@ use zerocopy::{FromBytes, IntoBytes};
 let bytes = price_slice.as_bytes();
 let back  = <[D64]>::ref_from_bytes(bytes).unwrap();
 ```
+
+> **`D96` is write-only for these traits.** `D64` uses all 64 bits, so any byte
+> pattern is a valid `D64` and the *bytes → value* direction is sound. `D96`
+> stores its value in only 96 of 128 bits, and its arithmetic relies on that
+> range — so reinterpreting arbitrary bytes as a `D96` could smuggle an
+> out-of-range value into a multiply and corrupt the result. `D96` therefore
+> implements only the *value → bytes* direction (`bytemuck::NoUninit`,
+> `zerocopy::IntoBytes`); to decode bytes into a `D96`, use the **checked**
+> `D96::try_read_le_bytes` / `try_read_be_bytes` / `try_read_ne_bytes` (which
+> return `None` on an out-of-range pattern) or `from_*_bytes` (which panics on
+> one).
 
 ### Generic numerics (num-traits)
 
@@ -534,7 +545,7 @@ assert_eq!(price.to_string(), "99.5");
 ## Safety and Correctness
 
 - **Overflow behavior**: All arithmetic operations have `checked`, `saturating`, and `wrapping` variants
-- **Minimal unsafe**: Safe Rust throughout the core; the only `unsafe` is the feature-gated `bytemuck` Pod/Zeroable impls (sound via `#[repr(transparent)]`)
+- **Minimal unsafe**: Safe Rust throughout the core; the only `unsafe` is the feature-gated `bytemuck` `Pod`/`NoUninit`/`Zeroable` impls (sound via `#[repr(transparent)]`)
 - **Extensive testing**: Property-based tests with `proptest` verify correctness against baseline implementations
 - **Banker's rounding**: IEEE 754 round-half-to-even for tie-breaking
 

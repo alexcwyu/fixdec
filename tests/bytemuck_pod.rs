@@ -35,10 +35,15 @@ fn d96_slice_byte_roundtrip() {
         D96::MAX,
         D96::MIN,
     ];
+    // D96 is `NoUninit` (value -> bytes), so the write direction casts zero-copy.
     let bytes: &[u8] = cast_slice(&v);
     assert_eq!(bytes.len(), v.len() * 16);
-    let back: &[D96] = cast_slice(bytes);
-    assert_eq!(back, &v);
+    // D96 is deliberately NOT `Pod`, so `cast_slice::<u8, D96>` does not exist
+    // (it would smuggle out-of-96-bit values into D96 arithmetic). Read back
+    // through the checked reader instead.
+    for (i, &d) in v.iter().enumerate() {
+        assert_eq!(D96::try_read_ne_bytes(&bytes[i * 16..(i + 1) * 16]), Some(d));
+    }
 }
 
 #[test]
@@ -49,11 +54,13 @@ fn bytes_of_matches_ne_bytes() {
     assert_eq!(b, &a.to_ne_bytes());
     assert_eq!(*from_bytes::<D64>(b), a);
 
+    // D96 implements `NoUninit` (value -> bytes) but not `Pod`, so `bytes_of`
+    // works while `from_bytes::<D96>` does not — read back through `try_read_*`.
     let c = D96::from_str("1234.567890123456").unwrap();
     let d = bytes_of(&c);
     assert_eq!(d.len(), 16);
     assert_eq!(d, &c.to_ne_bytes());
-    assert_eq!(*from_bytes::<D96>(d), c);
+    assert_eq!(D96::try_read_ne_bytes(d), Some(c));
 }
 
 #[test]
@@ -94,4 +101,14 @@ fn struct_of_decimals_cast() {
     assert_eq!(sb.len(), 48);
     let back: &[Trade] = cast_slice(sb);
     assert_eq!(back, &arr);
+}
+
+// Regression (Codex round 4): D96 is `NoUninit`, not `Pod`. The `bytemuck`
+// bytes->D96 direction (`from_bytes::<D96>` / `cast_slice::<u8, D96>`) does not
+// exist, so an out-of-96-bit pattern cannot be silently reinterpreted as a D96.
+// The only supported decode is the checked reader, which rejects it.
+#[test]
+fn d96_out_of_range_bytes_rejected_not_constructed() {
+    let oob = bytes_of(&i128::MAX);
+    assert_eq!(D96::try_read_ne_bytes(oob), None);
 }
