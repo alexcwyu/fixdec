@@ -3232,15 +3232,17 @@ impl<'de> Deserialize<'de> for D96 {
         D: Deserializer<'de>,
     {
         if deserializer.is_human_readable() {
-            // JSON, TOML, etc. - parse from string
-            // Use visitor pattern to avoid allocation
+            // JSON, TOML, etc. - accept a decimal string OR a bare integer
+            // exactly; bare floating-point numbers are refused (see visit_f64)
+            // because they cannot be parsed without silently rounding. Uses a
+            // visitor to avoid allocation.
             struct D96Visitor;
 
             impl<'de> de::Visitor<'de> for D96Visitor {
                 type Value = D96;
 
                 fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                    formatter.write_str("a decimal number string")
+                    formatter.write_str("a decimal string or an integer")
                 }
 
                 fn visit_str<E>(self, v: &str) -> core::result::Result<Self::Value, E>
@@ -3289,12 +3291,23 @@ impl<'de> Deserialize<'de> for D96 {
                     }
                 }
 
-                fn visit_f64<E>(self, v: f64) -> core::result::Result<Self::Value, E>
+                fn visit_f64<E>(self, _v: f64) -> core::result::Result<Self::Value, E>
                 where
                     E: de::Error,
                 {
-                    // Float inputs are rounded to 12 dp; the canonical form is a string.
-                    D96::from_f64(v).ok_or_else(|| de::Error::custom("f64 not representable as D96"))
+                    // Refuse bare floating-point numbers. A binary `f64` cannot
+                    // exactly represent most decimals, so routing it through
+                    // `from_f64` would SILENTLY round the value (e.g. JSON
+                    // `0.1000000000009` -> `0.1`) and bypass the exact precision
+                    // check the string path enforces — acceptance would depend on
+                    // the JSON token shape rather than the value. Whole numbers
+                    // arrive exactly via `visit_i64`/`visit_u64`; send fractional
+                    // decimals as a quoted string. (serde's default `visit_f32`
+                    // forwards here, so f32 is rejected too.)
+                    Err(de::Error::custom(
+                        "fixdec: refusing to deserialize D96 from a floating-point number \
+                         (precision may be lost); send a decimal string or an integer",
+                    ))
                 }
             }
 
@@ -5405,6 +5418,27 @@ mod serde_tests {
         let d = D96::from_str("123.45").unwrap();
         let json = serde_json::to_string(&d).unwrap();
         assert_eq!(json, r#""123.45""#);
+    }
+
+    // The float-rejection contract is format-independent: serde's default
+    // `visit_f32` forwards to our `visit_f64`, and non-finite floats (NaN /
+    // ±Infinity), which JSON cannot express but other human-readable formats can,
+    // must also be refused. serde_json can never drive these, so we test them at
+    // the visitor level via serde's value deserializers.
+    #[test]
+    fn deserialize_refuses_f32_and_nonfinite_floats() {
+        use serde::Deserialize;
+        use serde::de::IntoDeserializer;
+        use serde::de::value::Error as VErr;
+
+        // f32 -> serde default visit_f32 -> our visit_f64 -> Err.
+        let r: core::result::Result<D96, VErr> = D96::deserialize(1.5_f32.into_deserializer());
+        assert!(r.is_err(), "f32 must be refused");
+
+        for v in [2.5_f64, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let r: core::result::Result<D96, VErr> = D96::deserialize(v.into_deserializer());
+            assert!(r.is_err(), "f64 {v} must be refused");
+        }
     }
 
     #[test]

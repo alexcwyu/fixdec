@@ -391,9 +391,12 @@ struct Trade {
 let json = serde_json::to_string(&trade)?;
 // {"price":"1234.56","quantity":"100"}
 
-// Deserialize accepts BOTH quoted strings and bare JSON numbers, so payloads
-// like {"price": 1234.56, "quantity": 100} from non-fixdec producers also parse
-// (numbers are rounded to the type's precision; the canonical form is a string).
+// Deserialize accepts quoted decimal strings and bare JSON *integers* exactly
+// (e.g. {"price": "1234.56", "quantity": 100}). ANY bare floating-point number is
+// REJECTED — including exponent forms (1e2) and integer-valued ones (1.0, 100.0) —
+// because a binary float cannot represent most decimals exactly, so accepting one
+// would silently round the value and bypass the exact precision check. Send
+// fractional decimals as strings ("1234.56"); whole numbers may be bare integers.
 
 // Bincode: uses raw i64 (extremely fast)
 let bytes = bincode::serialize(&trade)?;
