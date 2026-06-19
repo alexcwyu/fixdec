@@ -26,6 +26,19 @@ fn powi_i32_min_does_not_panic() {
     // The whole negative range stays consistent with the small-exponent path.
     assert_eq!(D64::ONE.powi(i32::MIN + 1), Some(D64::ONE));
     assert_eq!(D96::from_i32(10).powi(-2), D96::try_with_scale(1, 2));
+    // The large-POSITIVE extreme must also not panic and stay consistent.
+    assert_eq!(D64::from_i32(2).powi(i32::MAX), None);
+    assert_eq!(D96::from_i32(2).powi(i32::MAX), None);
+    assert_eq!(D64::ONE.powi(i32::MAX), Some(D64::ONE));
+    assert_eq!(D96::ONE.powi(i32::MAX), Some(D96::ONE));
+    // (-1)^n: squaring/inversion must preserve even/odd parity at the extremes.
+    // i32::MIN is even -> 1; i32::MIN+1 is odd -> -1 (and 1/(-1) == -1).
+    let neg_one_64 = D64::from_i32(-1);
+    assert_eq!(neg_one_64.powi(i32::MIN), Some(D64::ONE));
+    assert_eq!(neg_one_64.powi(i32::MIN + 1), Some(neg_one_64));
+    let neg_one_96 = D96::from_i32(-1);
+    assert_eq!(neg_one_96.powi(i32::MIN), Some(D96::ONE));
+    assert_eq!(neg_one_96.powi(i32::MIN + 1), Some(neg_one_96));
 }
 
 // [#3] `from_basis_points` multiplied by the FULL scale before dividing by 10_000,
@@ -53,6 +66,10 @@ fn from_basis_points_accepts_representable_large_inputs() {
         Some(D96::from_i32(10_000_000))
     );
     assert_eq!(D96::from_basis_points(100), Some(D96::from_str("0.01").unwrap()));
+    // D96's distinct 96-bit range-check boundary: the largest in-range bps (raw =
+    // MAX rounded down to a 1e8 step) accepts, one basis point past it rejects.
+    assert!(D96::from_basis_points(396_140_812_571_321_687_967).is_some());
+    assert!(D96::from_basis_points(396_140_812_571_321_687_968).is_none());
 }
 
 // [#4] `new(integer, fractional)` added `fractional` as raw sub-units without

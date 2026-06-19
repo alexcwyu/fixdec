@@ -172,7 +172,7 @@ fn d64_display_forms() {
 }
 
 #[test]
-fn d64_powi_recip_sqrt() {
+fn d64_powi_recip() {
     assert_eq!(D64::from_i32(2).powi(0), Some(D64::ONE));
     assert_eq!(D64::from_i32(2).powi(10).unwrap().to_i64(), 1024);
     assert_eq!(D64::from_i32(2).powi(-1).unwrap(), D64::from_str("0.5").unwrap());
