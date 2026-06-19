@@ -57,10 +57,10 @@ fn d96_to_d64_round_bankers() {
 
 #[test]
 fn d96_to_d64_out_of_range() {
-    let big = D96::from_i64(100_000_000_000); // 1e11 > D64 max ~9.2e10
+    let big = D96::from_i64(100_000_000_000).unwrap(); // 1e11 > D64 max ~9.2e10
     assert_eq!(big.to_d64(), Err(DecimalError::Overflow));
     assert_eq!(big.to_d64_round(), Err(DecimalError::Overflow));
-    let small = D96::from_i64(-100_000_000_000);
+    let small = D96::from_i64(-100_000_000_000).unwrap();
     assert_eq!(small.to_d64(), Err(DecimalError::Underflow));
     assert_eq!(small.to_d64_round(), Err(DecimalError::Underflow));
 

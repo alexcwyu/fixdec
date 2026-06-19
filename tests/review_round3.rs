@@ -307,3 +307,39 @@ fn trailing_dot_mantissa_is_consistent() {
         assert!(D96::from_str_lossy(bad).is_err(), "d96 lossy {bad:?}");
     }
 }
+
+// ===========================================================================
+// [Codex adversarial review] D96::from_i64 / from_u64 must preserve the 96-bit
+// invariant — they were public, safe-looking, infallible constructors that
+// minted out-of-range values (D96 integer range is only ~±3.96e16, far below
+// i64/u64). Now they match D64 and return a range-checked Option.
+// ===========================================================================
+
+#[test]
+fn d96_inherent_int_constructors_are_range_checked() {
+    assert_eq!(D96::from_i64(i64::MAX), None);
+    assert_eq!(D96::from_i64(i64::MIN), None);
+    assert_eq!(D96::from_u64(u64::MAX), None);
+
+    // floor(D96::MAX integer part) is representable; one past it overflows.
+    let max_int: i64 = 39_614_081_257_132_168;
+    assert!(D96::from_i64(max_int).is_some());
+    assert!(D96::from_i64(-max_int).is_some());
+    assert_eq!(D96::from_i64(max_int + 1), None);
+    assert!(D96::from_u64(max_int as u64).is_some());
+    assert_eq!(D96::from_u64(max_int as u64 + 1), None);
+
+    // In-range values still convert.
+    assert_eq!(D96::from_i64(100).unwrap().to_i128(), 100);
+    assert_eq!(D96::from_u64(1_000_000).unwrap().to_i128(), 1_000_000);
+
+    // No public safe constructor may produce an out-of-96-bit raw value.
+    for v in [0_i64, 1, -1, max_int, -max_int, 12_345] {
+        let d = D96::from_i64(v).unwrap();
+        assert!(
+            D96::from_raw_checked(d.to_raw()).is_some(),
+            "from_i64({v}) produced out-of-range raw {}",
+            d.to_raw()
+        );
+    }
+}

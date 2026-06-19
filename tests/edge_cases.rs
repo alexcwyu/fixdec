@@ -220,8 +220,8 @@ fn d96_crypto_constants() {
 #[test]
 fn d96_large_division_correct() {
     // Regression for the base-2^64 remainder-overflow bug (divisor >= 2^64).
-    let num = D96::from_i64(1_000_000_000_000_000); // 1e15
-    let den = D96::from_i64(20_000_000); // raw 2e19 >= 2^64
+    let num = D96::from_i64(1_000_000_000_000_000).unwrap(); // 1e15
+    let den = D96::from_i64(20_000_000).unwrap(); // raw 2e19 >= 2^64
     assert_eq!(num.checked_div(den).unwrap().to_string(), "50000000");
     assert_eq!(
         D96::ONE.checked_div(den).unwrap().to_string(),
@@ -232,8 +232,8 @@ fn d96_large_division_correct() {
 #[test]
 fn d96_slow_path_mul() {
     // raw 2e19 >= 2^64 forces the 192-bit multiply path
-    let a = D96::from_i64(20_000_000);
-    assert_eq!(a.checked_mul(D96::from_i64(1_000)).unwrap().to_string(), "20000000000");
+    let a = D96::from_i64(20_000_000).unwrap();
+    assert_eq!(a.checked_mul(D96::from_i64(1_000).unwrap()).unwrap().to_string(), "20000000000");
 }
 
 #[test]

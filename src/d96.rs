@@ -1848,17 +1848,15 @@ impl D96 {
         }
     }
 
-    /// Creates a D96 from an i64 integer.
+    /// Creates a D96 from an i64 integer, returning `None` if it is out of range.
     ///
-    /// NOTE: this does NOT range-check. D96's integer range is only ≈±3.96e16,
-    /// so `|value|` above that yields an out-of-96-bit (invalid) D96. For
-    /// untrusted input use `<D96 as num_traits::FromPrimitive>::from_i64` (with
-    /// the `num-traits` feature), which returns `None` when out of range.
+    /// D96's representable integer range is only ≈±3.96e16, far smaller than
+    /// i64's, so a value beyond it cannot be stored. This is range-checked
+    /// (mirroring [`D64::from_i64`](crate::D64::from_i64)) so no public safe
+    /// constructor can mint an out-of-96-bit (invariant-violating) value.
     #[inline(always)]
-    pub const fn from_i64(value: i64) -> Self {
-        Self {
-            value: value as i128 * Self::SCALE,
-        }
+    pub const fn from_i64(value: i64) -> Option<Self> {
+        Self::from_i128(value as i128)
     }
 
     /// Creates a D96 from an i32 integer (always succeeds).
@@ -1877,16 +1875,14 @@ impl D96 {
         }
     }
 
-    /// Creates a D96 from a u64 integer.
+    /// Creates a D96 from a u64 integer, returning `None` if it is out of range.
     ///
-    /// NOTE: this does NOT range-check (see [`from_i64`](Self::from_i64)). A
-    /// `value` above ≈3.96e16 yields an out-of-96-bit (invalid) D96; use the
-    /// `num-traits` `FromPrimitive::from_u64` for a checked conversion.
+    /// D96's representable integer range (≈3.96e16) is far smaller than u64's,
+    /// so a larger value cannot be stored. Range-checked so no public safe
+    /// constructor can mint an out-of-96-bit (invariant-violating) value.
     #[inline(always)]
-    pub const fn from_u64(value: u64) -> Self {
-        Self {
-            value: value as i128 * Self::SCALE,
-        }
+    pub const fn from_u64(value: u64) -> Option<Self> {
+        Self::from_u128(value as u128)
     }
 
     /// Creates a D96 from a u128 integer.
@@ -3493,27 +3489,16 @@ impl num_traits::Saturating for D96 {
 
 #[cfg(feature = "num-traits")]
 impl num_traits::FromPrimitive for D96 {
-    /// Returns `None` if `n` exceeds D96's representable integer range
-    /// (≈±3.96e16). Does NOT call the unchecked inherent `from_i64`.
+    /// Returns `None` if `n` exceeds D96's representable integer range (≈±3.96e16).
     #[inline]
     fn from_i64(n: i64) -> Option<Self> {
-        let scaled = (n as i128).checked_mul(Self::SCALE)?;
-        if (Self::MIN.value..=Self::MAX.value).contains(&scaled) {
-            Some(Self { value: scaled })
-        } else {
-            None
-        }
+        D96::from_i64(n)
     }
 
     /// Returns `None` if `n` exceeds D96's representable integer range (≈3.96e16).
     #[inline]
     fn from_u64(n: u64) -> Option<Self> {
-        let scaled = (n as i128).checked_mul(Self::SCALE)?;
-        if scaled > Self::MAX.value {
-            None
-        } else {
-            Some(Self { value: scaled })
-        }
+        D96::from_u64(n)
     }
 
     #[inline]
@@ -3959,7 +3944,7 @@ mod conversion_tests {
 
     #[test]
     fn test_from_i64() {
-        let d = D96::from_i64(100);
+        let d = D96::from_i64(100).unwrap();
         assert_eq!(d.to_i128(), 100);
 
         // i64 -> D96 is fallible (range-checked); in-range values convert.
@@ -5481,7 +5466,7 @@ mod crypto_constant_tests {
         // 1 gwei = 10^9 wei = 10^-9 ETH
         // With 12 decimals: 1 gwei = 0.001 units (since 1 unit = 10^-12)
         // So 1 billion gwei = 1 ETH
-        let gwei_amount = D96::from_i64(1_000_000_000); // 1 billion gwei
+        let gwei_amount = D96::from_i64(1_000_000_000).unwrap(); // 1 billion gwei
         let eth_amount = gwei_amount * D96::GWEI;
         assert_eq!(eth_amount, D96::ONE); // Should equal 1 ETH
     }
@@ -5489,7 +5474,7 @@ mod crypto_constant_tests {
     #[test]
     fn test_satoshi_to_btc() {
         // 1 BTC = 10^8 satoshis
-        let satoshi_amount = D96::from_i64(100_000_000); // 100 million satoshis
+        let satoshi_amount = D96::from_i64(100_000_000).unwrap(); // 100 million satoshis
         let btc_amount = satoshi_amount * D96::SATOSHI;
         assert_eq!(btc_amount, D96::ONE); // Should equal 1 BTC
     }
@@ -5645,8 +5630,8 @@ mod d96_mul_regression_tests {
     #[test]
     fn test_mul_slow_path_exact() {
         // from_i64(20_000_000) has raw 2e19 >= 2^64, forcing the 192-bit path.
-        let a = D96::from_i64(20_000_000);
-        let b = D96::from_i64(1_000);
+        let a = D96::from_i64(20_000_000).unwrap();
+        let b = D96::from_i64(1_000).unwrap();
         let r = a.checked_mul(b).unwrap();
         assert_eq!(r.to_raw(), 20_000_000_000i128 * D96::SCALE);
         assert_eq!(r.to_string(), "20000000000");
@@ -5672,8 +5657,8 @@ mod d96_div_regression_tests {
     // all force the base-2^32 slow path (divisor raw >= 2^64).
     #[test]
     fn test_div_large_divisor_exact() {
-        let num = D96::from_i64(1_000_000_000_000_000); // 1e15
-        let den = D96::from_i64(20_000_000); // raw 2e19 >= 2^64
+        let num = D96::from_i64(1_000_000_000_000_000).unwrap(); // 1e15
+        let den = D96::from_i64(20_000_000).unwrap(); // raw 2e19 >= 2^64
         let r = num.checked_div(den).unwrap();
         assert_eq!(r.to_raw(), 50_000_000i128 * D96::SCALE); // 5e7
         assert_eq!(r.to_string(), "50000000");
@@ -5682,7 +5667,7 @@ mod d96_div_regression_tests {
     #[test]
     fn test_div_large_divisor_fractional() {
         let num = D96::ONE;
-        let den = D96::from_i64(20_000_000); // raw 2e19 >= 2^64
+        let den = D96::from_i64(20_000_000).unwrap(); // raw 2e19 >= 2^64
         let r = num.checked_div(den).unwrap();
         assert_eq!(r.to_raw(), 50_000); // 1 / 2e7 = 0.00000005
         assert_eq!(r.to_string(), "0.00000005");
@@ -5690,8 +5675,8 @@ mod d96_div_regression_tests {
 
     #[test]
     fn test_div_very_large_operands() {
-        let num = D96::from_i64(1_000_000_000_000_000); // 1e15
-        let den = D96::from_i64(1_000_000_000_000); // 1e12, raw 1e24 >= 2^64
+        let num = D96::from_i64(1_000_000_000_000_000).unwrap(); // 1e15
+        let den = D96::from_i64(1_000_000_000_000).unwrap(); // 1e12, raw 1e24 >= 2^64
         let r = num.checked_div(den).unwrap();
         assert_eq!(r.to_raw(), 1_000i128 * D96::SCALE); // 1e3
     }

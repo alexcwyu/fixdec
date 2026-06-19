@@ -98,7 +98,7 @@ let amount = D96::from_str("0.5")?;
 let total_value = eth_price * amount;
 
 // Built-in crypto constants
-let gas_price = D96::from_i64(50) * D96::GWEI; // 50 gwei
+let gas_price = D96::from_i64(50).unwrap() * D96::GWEI; // 50 gwei (from_i64 is range-checked)
 let tx_value = D96::from_str("0.00000001")?;   // 1 satoshi equivalent
 ```
 
@@ -509,7 +509,7 @@ use fixdec::D64;
 // US Treasury bonds are quoted in 32nds
 // e.g., "99-16" means 99 + 16/32 = 99.5
 fn parse_bond_price(whole: i64, thirty_seconds: i64) -> D64 {
-    let whole_part = D64::from_i64(whole);
+    let whole_part = D64::from_i64(whole).unwrap();
     let fraction = D64::THIRTY_SECOND.mul_i64(thirty_seconds).unwrap();
     whole_part + fraction
 }
