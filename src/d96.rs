@@ -1532,39 +1532,40 @@ impl D96 {
 
     /// Raises `self` to an integer power.
     #[must_use = "this returns the result of the operation, without modifying the original"]
-    pub fn powi(self, mut exp: i32) -> Option<Self> {
+    pub fn powi(self, exp: i32) -> Option<Self> {
         if exp == 0 {
             return Some(Self::ONE);
         }
 
-        if exp < 0 {
-            let pos_result = match self.powi(-exp) {
-                Some(r) => r,
-                None => return None,
-            };
-            return Self::ONE.checked_div(pos_result);
-        }
-
+        // Iterate over the unsigned magnitude so `i32::MIN` is handled: negating
+        // `exp` would overflow i32 (`-i32::MIN` is unrepresentable), but
+        // `i32::MIN.unsigned_abs() == 2_147_483_648` is exact.
+        let mut n = exp.unsigned_abs();
         let mut base = self;
         let mut result = Self::ONE;
 
-        while exp > 0 {
-            if exp % 2 == 1 {
+        while n > 0 {
+            if n % 2 == 1 {
                 result = match result.checked_mul(base) {
                     Some(r) => r,
                     None => return None,
                 };
             }
-            if exp > 1 {
+            if n > 1 {
                 base = match base.checked_mul(base) {
                     Some(b) => b,
                     None => return None,
                 };
             }
-            exp /= 2;
+            n /= 2;
         }
 
-        Some(result)
+        // For a negative exponent, return 1 / (self ^ |exp|).
+        if exp < 0 {
+            Self::ONE.checked_div(result)
+        } else {
+            Some(result)
+        }
     }
 
     /// Checked integer power. Returns an error if overflow occurred.
