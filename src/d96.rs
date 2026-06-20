@@ -649,6 +649,18 @@ impl D96 {
         }
     }
 
+    /// Addition that reports overflow: returns the wrapped result paired with a
+    /// `bool` that is `true` if the true sum left the 96-bit range (the wrapped
+    /// value then matches [`wrapping_add`](Self::wrapping_add)).
+    #[inline(always)]
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn overflowing_add(self, rhs: Self) -> (Self, bool) {
+        match self.checked_add(rhs) {
+            Some(result) => (result, false),
+            None => (self.wrapping_add(rhs), true),
+        }
+    }
+
     /// Checked addition. Returns an error if overflow occurred.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
@@ -701,6 +713,18 @@ impl D96 {
     pub const fn wrapping_sub(self, rhs: Self) -> Self {
         Self {
             value: Self::wrap_to_96(self.value.wrapping_sub(rhs.value)),
+        }
+    }
+
+    /// Subtraction that reports overflow: returns the wrapped result paired with a
+    /// `bool` that is `true` if the true difference left the 96-bit range (the
+    /// wrapped value then matches [`wrapping_sub`](Self::wrapping_sub)).
+    #[inline(always)]
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn overflowing_sub(self, rhs: Self) -> (Self, bool) {
+        match self.checked_sub(rhs) {
+            Some(result) => (result, false),
+            None => (self.wrapping_sub(rhs), true),
         }
     }
 
@@ -839,6 +863,19 @@ impl D96 {
         // out-of-range D96 (matches wrapping_add/sub/neg/abs).
         Self {
             value: Self::wrap_to_96(result),
+        }
+    }
+
+    /// Multiplication that reports overflow: returns the wrapped result paired
+    /// with a `bool` that is `true` if the scaled product left the 96-bit range
+    /// (the wrapped value then matches [`wrapping_mul`](Self::wrapping_mul)). The
+    /// product is truncated toward zero, like all D96 multiplication.
+    #[inline(always)]
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub fn overflowing_mul(self, rhs: Self) -> (Self, bool) {
+        match self.checked_mul(rhs) {
+            Some(result) => (result, false),
+            None => (self.wrapping_mul(rhs), true),
         }
     }
 
