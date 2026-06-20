@@ -296,7 +296,7 @@ fn f64_precision_demo() {
     let tenth_d = D64::from_str("0.1").unwrap();
     for _ in 0..1_000_000 {
         f += tenth_f;
-        d = d + tenth_d;
+        d += tenth_d;
     }
     println!("  f64 result : {f:.8}   (expected 100000.00000000)");
     println!("  D64 result : {d}   (exact)");

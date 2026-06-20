@@ -935,7 +935,7 @@ impl D96 {
         let result = product.checked_add(add.value)?;
 
         // Check 96-bit bounds
-        if result > Self::MAX.value || result < Self::MIN.value {
+        if !(Self::MIN.value..=Self::MAX.value).contains(&result) {
             return None;
         }
 
@@ -1076,6 +1076,11 @@ const fn mul_96x96_to_192(a: u128, b: u128) -> (u128, u64) {
 /// squares a candidate `< 2^68` with [`mul_96x96_to_192`] (operands `< 2^96`).
 #[inline]
 const fn isqrt_192(low: u128, high: u128) -> u128 {
+    // Precondition enforced: this is a D96-radicand-specific helper. `high < 2^8`
+    // keeps `high << (128 - shift)` from overflowing and bounds the upward
+    // correction to <= 16 steps. The sole caller (`D96::sqrt`) passes
+    // `raw * 1e12 < 2^135`, so `high < 2^7`.
+    debug_assert!(high < (1 << 8), "isqrt_192: high limb must be < 2^8");
     if high == 0 {
         return isqrt_u128(low);
     }
@@ -1347,7 +1352,7 @@ const fn mul_u128_by_small(a: u128, b: u128) -> (u128, u128) {
     // Product ≤ 2^136, so high part will be at most 2^8 (very small)
 
     let a_lo = a as u64 as u128;
-    let a_hi = (a >> 64) as u128;
+    let a_hi = a >> 64;
 
     // Multiply both parts by b
     let p0 = a_lo * b;
@@ -2032,16 +2037,10 @@ impl D96 {
 
         while n > 0 {
             if n % 2 == 1 {
-                result = match result.checked_mul(base) {
-                    Some(r) => r,
-                    None => return None,
-                };
+                result = result.checked_mul(base)?;
             }
             if n > 1 {
-                base = match base.checked_mul(base) {
-                    Some(b) => b,
-                    None => return None,
-                };
+                base = base.checked_mul(base)?;
             }
             n /= 2;
         }
@@ -2063,7 +2062,6 @@ impl D96 {
             None => Err(DecimalError::Overflow),
         }
     }
-
 }
 
 // ============================================================================
@@ -2395,7 +2393,7 @@ impl D96 {
         let result = round_half_away_f64(scaled) as i128;
 
         // CRITICAL: Final 96-bit bounds check (catches rounding up past MAX).
-        if result > Self::MAX.value || result < Self::MIN.value {
+        if !(Self::MIN.value..=Self::MAX.value).contains(&result) {
             return None;
         }
 
@@ -2580,7 +2578,7 @@ impl D96 {
             abs_value
         };
 
-        if value > Self::MAX.value || value < Self::MIN.value {
+        if !(Self::MIN.value..=Self::MAX.value).contains(&value) {
             return Err(DecimalError::Overflow);
         }
 
@@ -2847,7 +2845,7 @@ impl D96 {
         };
 
         // Check 96-bit bounds
-        if value > Self::MAX.value || value < Self::MIN.value {
+        if !(Self::MIN.value..=Self::MAX.value).contains(&value) {
             return Err(DecimalError::Overflow);
         }
 
@@ -2870,7 +2868,7 @@ impl D96 {
             .ok_or(DecimalError::Overflow)?;
 
         // CRITICAL: Check 96-bit bounds
-        if scaled > Self::MAX.value || scaled < Self::MIN.value {
+        if !(Self::MIN.value..=Self::MAX.value).contains(&scaled) {
             return Err(DecimalError::Overflow);
         }
 
@@ -3435,7 +3433,11 @@ impl D96 {
         let rounded_value = if remainder * 2 > divisor {
             scaled_value + 1
         } else if remainder * 2 == divisor {
-            if scaled_value % 2 == 1 { scaled_value + 1 } else { scaled_value }
+            if scaled_value % 2 == 1 {
+                scaled_value + 1
+            } else {
+                scaled_value
+            }
         } else {
             scaled_value
         };
@@ -3533,9 +3535,7 @@ fn format_fractional_fixed_width(mut frac: u128, width: usize, buffer: &mut [u8]
     }
 
     // Copy to output buffer
-    for i in 0..width {
-        buffer[i] = temp[i];
-    }
+    buffer[..width].copy_from_slice(&temp[..width]);
 
     width
 }
@@ -3596,12 +3596,7 @@ fn format_fractional_reciprocal(frac: u128, buffer: &mut [u8]) -> usize {
     }
 
     // Find last non-zero digit
-    let mut last_nonzero = 0;
-    for i in 0..12 {
-        if digits[i] != 0 {
-            last_nonzero = i;
-        }
-    }
+    let last_nonzero = digits[..12].iter().rposition(|&d| d != 0).unwrap_or(0);
 
     // Write digits up to last non-zero
     for i in 0..=last_nonzero {
@@ -3761,7 +3756,7 @@ impl<'de> Deserialize<'de> for D96 {
             let value = i128::deserialize(deserializer)?;
 
             // CRITICAL: Validate 96-bit bounds
-            if value > Self::MAX.value || value < Self::MIN.value {
+            if !(Self::MIN.value..=Self::MAX.value).contains(&value) {
                 return Err(de::Error::custom("value exceeds D96 96-bit range"));
             }
 
@@ -4679,7 +4674,6 @@ mod math_tests {
         // Allow small rounding difference
         assert!((result.to_raw() - expected.to_raw()).abs() < 1_000_000);
     }
-
 }
 
 #[cfg(test)]
@@ -4754,7 +4748,6 @@ mod result_tests {
         assert!(two.try_powi(3).is_ok());
         assert!(D96::MAX.try_powi(2).is_err());
     }
-
 }
 
 #[cfg(test)]
@@ -4794,8 +4787,14 @@ mod string_tests {
             500_000_000_000
         );
         assert_eq!(D96::from_str_exact(".5").unwrap().to_raw(), 500_000_000_000);
-        assert_eq!(D96::from_str_exact("-0.5").unwrap().to_raw(), -500_000_000_000);
-        assert_eq!(D96::from_str_exact("-.5").unwrap().to_raw(), -500_000_000_000);
+        assert_eq!(
+            D96::from_str_exact("-0.5").unwrap().to_raw(),
+            -500_000_000_000
+        );
+        assert_eq!(
+            D96::from_str_exact("-.5").unwrap().to_raw(),
+            -500_000_000_000
+        );
     }
 
     #[test]

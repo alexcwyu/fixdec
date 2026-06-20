@@ -1526,7 +1526,6 @@ impl D64 {
             None => Err(DecimalError::Overflow),
         }
     }
-
 }
 
 // ============================================================================
@@ -1896,13 +1895,10 @@ impl D64 {
         }
 
         // Find decimal point position
-        let mut decimal_pos = None;
-        for i in start_pos..len {
-            if bytes[i] == b'.' {
-                decimal_pos = Some(i);
-                break;
-            }
-        }
+        let decimal_pos = bytes[start_pos..len]
+            .iter()
+            .position(|&b| b == b'.')
+            .map(|p| start_pos + p);
 
         // Parse integer part
         let int_end = decimal_pos.unwrap_or(len);
@@ -2168,13 +2164,10 @@ impl D64 {
         }
 
         // Find decimal point position
-        let mut decimal_pos = None;
-        for i in start_pos..len {
-            if bytes[i] == b'.' {
-                decimal_pos = Some(i);
-                break;
-            }
-        }
+        let decimal_pos = bytes[start_pos..len]
+            .iter()
+            .position(|&b| b == b'.')
+            .map(|p| start_pos + p);
 
         // Parse integer part
         let int_end = decimal_pos.unwrap_or(len);
@@ -2367,7 +2360,11 @@ impl D64 {
         let rounded_value = if remainder * 2 > divisor {
             scaled_value + 1
         } else if remainder * 2 == divisor {
-            if scaled_value % 2 == 1 { scaled_value + 1 } else { scaled_value }
+            if scaled_value % 2 == 1 {
+                scaled_value + 1
+            } else {
+                scaled_value
+            }
         } else {
             scaled_value
         };
@@ -2827,7 +2824,7 @@ impl fmt::Display for D64 {
             // Remove trailing zeros first
             let mut frac = fractional_part;
             let mut num_zeros_removed = 0;
-            while frac % 10 == 0 {
+            while frac.is_multiple_of(10) {
                 frac /= 10;
                 num_zeros_removed += 1;
             }
@@ -2862,7 +2859,7 @@ impl fmt::Display for D64 {
                     }
                 }
 
-                pos = pos + digits_to_write;
+                pos += digits_to_write;
             }
         }
 
@@ -2967,10 +2964,7 @@ impl<'de> Deserialize<'de> for D64 {
                     D64::from_str_exact(v).map_err(de::Error::custom)
                 }
 
-                fn visit_string<E>(
-                    self,
-                    v: alloc::string::String,
-                ) -> core::result::Result<D64, E>
+                fn visit_string<E>(self, v: alloc::string::String) -> core::result::Result<D64, E>
                 where
                     E: de::Error,
                 {
@@ -3602,17 +3596,16 @@ mod conversion_tests {
         assert_eq!(D64::from_raw(340_000_000).to_i64_round(), 3); // 3.4: Normal rounding
         assert_eq!(D64::from_raw(350_000_000).to_i64_round(), 4); // 3.5: Banker's rounding: round to even
         assert_eq!(D64::from_raw(360_000_000).to_i64_round(), 4); // 3.6: Normal rounding
-        
+
         assert_eq!(D64::from_raw(440_000_000).to_i64_round(), 4); // 4.4: Normal rounding
         assert_eq!(D64::from_raw(450_000_000).to_i64_round(), 4); // 4.5: Banker's rounding: round to even
         assert_eq!(D64::from_raw(460_000_000).to_i64_round(), 5); // 4.6: Normal rounding
-
 
         assert_eq!(D64::from_raw(-110_000_000).to_i64_round(), -1); // -1.1: Normal rounding
         assert_eq!(D64::from_raw(-140_000_000).to_i64_round(), -1); // -1.4: Normal rounding
         assert_eq!(D64::from_raw(-150_000_000).to_i64_round(), -2); // -1.5: Banker's rounding: round to even
         assert_eq!(D64::from_raw(-160_000_000).to_i64_round(), -2); // -1.6: Normal rounding
-        
+
         assert_eq!(D64::from_raw(-240_000_000).to_i64_round(), -2); // -2.4: Normal rounding
         assert_eq!(D64::from_raw(-250_000_000).to_i64_round(), -2); // -2.5: Banker's rounding: round to even
         assert_eq!(D64::from_raw(-260_000_000).to_i64_round(), -3); // -2.6: Normal rounding
@@ -3808,7 +3801,6 @@ mod math_tests {
         // Allow small rounding difference
         assert!((result.to_raw() - expected.to_raw()).abs() < 100);
     }
-
 }
 
 #[cfg(test)]
@@ -4545,7 +4537,7 @@ mod display_tests {
     #[test]
     fn test_display_integer() {
         assert_eq!(format!("{}", D64::from_raw(100_000_000)), "1");
-        assert_eq!(format!("{}", D64::from_raw(4200_000_000)), "42");
+        assert_eq!(format!("{}", D64::from_raw(4_200_000_000)), "42");
         assert_eq!(format!("{}", D64::ZERO), "0");
     }
 
@@ -5103,7 +5095,10 @@ mod mul_regression_tests {
     fn test_mul_large_values_exact() {
         // Under the old reciprocal division these were off by +4, +490 and
         // +1_225_804 respectively.
-        assert_eq!((D64::from_i32(100) * D64::from_i32(100)).to_raw(), 10_000 * D64::SCALE);
+        assert_eq!(
+            (D64::from_i32(100) * D64::from_i32(100)).to_raw(),
+            10_000 * D64::SCALE
+        );
         assert_eq!(
             (D64::from_i32(1_000) * D64::from_i32(1_000)).to_raw(),
             1_000_000 * D64::SCALE
@@ -5183,7 +5178,9 @@ mod mul_regression_tests {
             10_000 * D64::SCALE
         );
         assert_eq!(
-            D64::from_i32(100).saturating_mul(D64::from_i32(100)).to_raw(),
+            D64::from_i32(100)
+                .saturating_mul(D64::from_i32(100))
+                .to_raw(),
             10_000 * D64::SCALE
         );
         assert_eq!(D64::MAX.saturating_mul(D64::MAX), D64::MAX);

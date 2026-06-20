@@ -278,7 +278,16 @@ fn main() {
         println!("== {name} ==  ({} sqrt checked)", s.n);
         println!("  exact-oracle failures : {}", s.oracle_fail);
         println!("  rust_decimal violations: {}  (floored sqrt outside [y, y+ULP))", s.rd_violation);
-        println!("  rust_decimal max dev   : {:.6} ULP  (expected < 1)", s.rd_max_ulp);
+        // The floor of a non-perfect-square root approaches but never reaches
+        // 1 ULP below rust_decimal's ~28-digit root, so the exact (Decimal)
+        // violation count is the verdict; the f64 max is shown for context and
+        // tagged `<`/`>=` from that count to avoid a rounding false-alarm.
+        println!(
+            "  rust_decimal max dev   : {} 1 ULP  (~{:.4} ULP observed; {} hard violations)",
+            if s.rd_violation == 0 { "<" } else { ">=" },
+            s.rd_max_ulp,
+            s.rd_violation
+        );
         println!("  f64 max abs deviation  : {:.3e}", s.f64_max_abs);
         println!("  f64 max rel deviation  : {:.3e}", s.f64_max_rel);
         println!("  negative-input failures: {}", s.neg_fail);
