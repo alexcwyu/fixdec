@@ -1599,7 +1599,7 @@ impl D64 {
 
         // Scientific / E-notation: dispatch to a dedicated digit-level parser.
         if bytes.iter().any(|&b| b == b'e' || b == b'E') {
-            return Self::from_scientific_bytes(bytes);
+            return Self::from_scientific_bytes(bytes, false);
         }
 
         // Fast path: check for negative
@@ -1737,7 +1737,7 @@ impl D64 {
     /// the significand digits, so a positive exponent can rescue an otherwise
     /// over-precise mantissa (`"1.234567891e2"` == `123.4567891`). Allocation
     /// free, so it stays usable in `no_std`.
-    fn from_scientific_bytes(bytes: &[u8]) -> crate::Result<Self> {
+    fn from_scientific_bytes(bytes: &[u8], lossy: bool) -> crate::Result<Self> {
         let e_pos = bytes
             .iter()
             .position(|&b| b == b'e' || b == b'E')
@@ -1823,14 +1823,21 @@ impl D64 {
                 .ok_or(DecimalError::Overflow)?
         } else {
             let k = -net;
-            if k > 38 {
-                return Err(DecimalError::PrecisionLoss); // |value| below one ULP, nonzero
+            if lossy {
+                // Lossy: banker's-round the sub-ULP digits instead of rejecting
+                // (k >= 39 rounds the magnitude to 0). Matches from_str_lossy's
+                // documented half-even behaviour on the plain decimal path.
+                round_div_pow10_i128(m, k as u32)
+            } else {
+                if k > 38 {
+                    return Err(DecimalError::PrecisionLoss); // |value| below one ULP, nonzero
+                }
+                let div = pow10_i128(k as u8);
+                if m % div != 0 {
+                    return Err(DecimalError::PrecisionLoss);
+                }
+                m / div
             }
-            let div = pow10_i128(k as u8);
-            if m % div != 0 {
-                return Err(DecimalError::PrecisionLoss);
-            }
-            m / div
         };
 
         // Apply sign with asymmetric i64 bounds (matches the plain path).
@@ -1861,6 +1868,12 @@ impl D64 {
 
         let bytes = s.as_bytes();
         let len = bytes.len();
+
+        // Scientific / E-notation: dispatch to the lossy scientific parser, which
+        // banker's-rounds excess precision (exact parsing would reject it).
+        if bytes.iter().any(|&b| b == b'e' || b == b'E') {
+            return Self::from_scientific_bytes(bytes, true);
+        }
 
         let (is_negative, start_pos) = match bytes[0] {
             b'-' => (true, 1),

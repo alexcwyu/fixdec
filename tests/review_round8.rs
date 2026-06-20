@@ -45,5 +45,46 @@ fn d96_format_precision_pads_above_native_scale() {
 fn d96_format_precision_below_native_scale_unchanged() {
     assert_eq!(format!("{:.2}", D96::from_str("1.5").unwrap()), "1.50");
     assert_eq!(format!("{:.0}", D96::from_str("2.5").unwrap()), "2"); // banker's
+    assert_eq!(format!("{:.0}", D96::from_str("3.5").unwrap()), "4"); // banker's (tie -> even)
     assert_eq!(format!("{:.6}", D96::from_str("3.14159265").unwrap()), "3.141593");
+}
+
+// ---------------------------------------------------------------------------
+// [F1] from_str_lossy must accept scientific / E-notation, rounding to scale
+// with banker's half-even (exact parsing rejects sub-scale precision).
+// Pre-fix, the verification showed from_str_lossy("1.5e3") = Err(InvalidFormat).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn d64_from_str_lossy_accepts_scientific() {
+    // Representable exactly: lossy agrees with exact.
+    assert_eq!(D64::from_str_lossy("1.5e2").unwrap(), D64::from_str("150").unwrap());
+    assert_eq!(D64::from_str_lossy("1E-3").unwrap(), D64::from_str("0.001").unwrap());
+    assert_eq!(D64::from_str_lossy("-2.5e-1").unwrap(), D64::from_str("-0.25").unwrap());
+    assert_eq!(D64::from_str_lossy("+1e0").unwrap(), D64::ONE);
+    // Below the 8-dp scale: exact parse rejects (PrecisionLoss); lossy rounds.
+    assert_eq!(D64::from_str_exact("1e-13"), Err(fixdec::DecimalError::PrecisionLoss));
+    assert_eq!(D64::from_str_lossy("1e-13").unwrap(), D64::ZERO);
+    assert_eq!(D64::from_str_lossy("9.9e-9").unwrap(), D64::from_raw(1)); // 0.0000000099 -> 0.00000001
+    // Banker's half-even on the exact tie (9th fractional digit == 5).
+    assert_eq!(D64::from_str_lossy("1.234567895e0").unwrap(), D64::from_str("1.2345679").unwrap());
+    assert_eq!(D64::from_str_lossy("1.234567885e0").unwrap(), D64::from_str("1.23456788").unwrap());
+    // Malformed exponent is still rejected.
+    assert!(D64::from_str_lossy("1e").is_err());
+    assert!(D64::from_str_lossy("1e+").is_err());
+}
+
+#[test]
+fn d96_from_str_lossy_accepts_scientific() {
+    assert_eq!(D96::from_str_lossy("1.5e2").unwrap(), D96::from_str("150").unwrap());
+    assert_eq!(D96::from_str_lossy("1E-6").unwrap(), D96::from_str("0.000001").unwrap());
+    assert_eq!(D96::from_str_lossy("-2.5e-1").unwrap(), D96::from_str("-0.25").unwrap());
+    // Below the 12-dp scale: lossy rounds to zero rather than erroring.
+    assert_eq!(D96::from_str_exact("1e-15"), Err(fixdec::DecimalError::PrecisionLoss));
+    assert_eq!(D96::from_str_lossy("1e-15").unwrap(), D96::ZERO);
+    // Banker's half-even on the exact tie (13th fractional digit == 5).
+    assert_eq!(
+        D96::from_str_lossy("1.2345678901235e0").unwrap(),
+        D96::from_str("1.234567890124").unwrap()
+    );
 }
