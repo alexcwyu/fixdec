@@ -80,6 +80,13 @@ fn bench_comparison(c: &mut Criterion) {
     });
 }
 
+fn bench_sqrt(c: &mut Criterion) {
+    c.bench_function("rust_decimal_sqrt", |b| {
+        let d = Decimal::from_str("123.456789").unwrap();
+        b.iter(|| black_box(black_box(d).sqrt().unwrap()));
+    });
+}
+
 fn bench_powi(c: &mut Criterion) {
     c.bench_function("rust_decimal_powi", |b| {
         let d = Decimal::from_str("1.05").unwrap();
@@ -99,6 +106,7 @@ criterion_group!(
     bench_sum,
     bench_rounding,
     bench_comparison,
+    bench_sqrt,
     bench_powi,
 );
 

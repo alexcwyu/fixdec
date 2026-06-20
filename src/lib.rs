@@ -109,6 +109,9 @@ pub enum DecimalError {
 
     #[error("precision loss would occur")]
     PrecisionLoss,
+
+    #[error("operation undefined for negative values")]
+    NegativeValue,
 }
 
 pub type Result<T> = core::result::Result<T, DecimalError>;

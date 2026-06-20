@@ -9,8 +9,8 @@ use core::str::FromStr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 use crate::internal::{
-    apply_rounding, apply_rounding_unsigned, banker_round_i128, gcd_u128, pow10_i128, pow10_u128,
-    round_div_pow10_i128, round_half_away_f64,
+    apply_rounding, apply_rounding_unsigned, banker_round_i128, gcd_u128, isqrt_u128, pow10_i128,
+    pow10_u128, round_div_pow10_i128, round_half_away_f64,
 };
 use crate::{D64, DecimalError, RoundingStrategy};
 
@@ -1054,6 +1054,44 @@ const fn mul_96x96_to_192(a: u128, b: u128) -> (u128, u64) {
     (low, high as u64)
 }
 
+/// Integer floor square root of a 192-bit value `R = low + high * 2^128`: the
+/// largest `y` with `y*y <= R`. `R < 2^192`, so the answer is `< 2^96`.
+///
+/// Backs `D96::sqrt`, whose radicand `raw * 1e12` reaches ~2^135 (overflowing
+/// the i128 the removed `sqrt` used). When `high == 0` the radicand fits a u128
+/// and we defer to [`isqrt_u128`]; otherwise we binary-search `y`, squaring each
+/// candidate with [`mul_96x96_to_192`] (valid since every `y < 2^96`) and
+/// comparing the 256-bit product against `R`.
+#[inline]
+const fn isqrt_192(low: u128, high: u128) -> u128 {
+    if high == 0 {
+        return isqrt_u128(low);
+    }
+    // Answer lies in [lo, hi); invariant: lo*lo <= R < hi*hi. The true root is
+    // < 2^96 because R < 2^192.
+    let mut lo: u128 = 0;
+    let mut hi: u128 = 1u128 << 96;
+    while hi - lo > 1 {
+        let mid = lo + (hi - lo) / 2; // 1 <= mid < 2^96
+        let (m_low, m_high) = mul_96x96_to_192(mid, mid); // mid^2 < 2^192
+        // (m_high, m_low) <= (high, low) as 256-bit unsigned?
+        let sq_le_r = {
+            let m_high = m_high as u128;
+            if m_high != high {
+                m_high < high
+            } else {
+                m_low <= low
+            }
+        };
+        if sq_le_r {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
+}
+
 /// Optimized division of 192-bit by 10^12
 #[inline(always)]
 const fn div_192_by_1e12(low: u128, high: u64) -> Option<u128> {
@@ -1572,6 +1610,45 @@ impl D96 {
         match self.checked_abs() {
             Some(result) => Ok(result),
             None => Err(DecimalError::Overflow),
+        }
+    }
+
+    /// Returns the square root, truncated toward zero to the representable grid:
+    /// the largest `y` with `y*y <= self`. Returns `None` for negative inputs
+    /// (no real root).
+    ///
+    /// `sqrt` is arithmetic, so it truncates like `mul`/`div` rather than
+    /// rounding: the result satisfies `y*y <= self < (y + ULP)*(y + ULP)` where
+    /// `ULP == 10^-12`, and perfect squares are exact (`D96::from_i32(9).sqrt()
+    /// == Some(D96::from_i32(3))`). For last-digit rounding, round the result
+    /// explicitly with [`round_dp_with_strategy`](Self::round_dp_with_strategy).
+    ///
+    /// Computes `floor(isqrt(raw * SCALE))`. The radicand `raw * 1e12` reaches
+    /// ~2^135 — this is exactly the i128 overflow that forced the previous
+    /// `sqrt` to be removed — so it is formed in a 192-bit intermediate and the
+    /// integer sqrt is taken there. The result is `<= ~2e20`, always inside the
+    /// `D96` range, so no overflow check is needed.
+    #[inline]
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn sqrt(self) -> Option<Self> {
+        if self.value < 0 {
+            return None;
+        }
+        // radicand = raw * SCALE as a 192-bit value (high is tiny, < 2^8).
+        let (low, high) = mul_u128_by_small(self.value as u128, Self::SCALE as u128);
+        Some(Self {
+            value: isqrt_192(low, high) as i128,
+        })
+    }
+
+    /// Checked square root. Returns [`NegativeValue`](DecimalError::NegativeValue)
+    /// for negative inputs; otherwise equivalent to [`sqrt`](Self::sqrt).
+    #[inline]
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn try_sqrt(self) -> crate::Result<Self> {
+        match self.sqrt() {
+            Some(result) => Ok(result),
+            None => Err(DecimalError::NegativeValue),
         }
     }
 }

@@ -9,7 +9,7 @@ use core::str::FromStr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 use crate::internal::{
-    apply_rounding, banker_round_i64, gcd_u128, pow10_i64, pow10_i128, pow10_u64,
+    apply_rounding, banker_round_i64, gcd_u128, isqrt_u128, pow10_i64, pow10_i128, pow10_u64,
     round_div_pow10_i128, round_half_away_f64,
 };
 use crate::{D96, DecimalError, RoundingStrategy};
@@ -1063,6 +1063,44 @@ impl D64 {
         match self.checked_abs() {
             Some(result) => Ok(result),
             None => Err(DecimalError::Overflow),
+        }
+    }
+
+    /// Returns the square root, truncated toward zero to the representable grid:
+    /// the largest `y` with `y*y <= self`. Returns `None` for negative inputs
+    /// (no real root).
+    ///
+    /// `sqrt` is arithmetic, so it truncates like `mul`/`div` rather than
+    /// rounding: the result satisfies `y*y <= self < (y + ULP)*(y + ULP)` where
+    /// `ULP == 10^-8`, and perfect squares are exact (`D64::from_i32(9).sqrt()
+    /// == Some(D64::from_i32(3))`). For last-digit rounding, round the result
+    /// explicitly with [`round_dp_with_strategy`](Self::round_dp_with_strategy).
+    ///
+    /// Implemented as `floor(isqrt(raw * SCALE))`: `raw * 1e8 <= i64::MAX * 1e8
+    /// < i128::MAX`, so the radicand fits an i128 and the integer sqrt fits the
+    /// `D64` range with room to spare (`<= ~3.04e13`).
+    #[inline]
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn sqrt(self) -> Option<Self> {
+        if self.value < 0 {
+            return None;
+        }
+        // radicand = raw * SCALE, exact in i128 (<= 9.22e26).
+        let radicand = self.value as u128 * Self::SCALE as u128;
+        // isqrt(radicand) <= 3.04e13, always inside the D64 range.
+        Some(Self {
+            value: isqrt_u128(radicand) as i64,
+        })
+    }
+
+    /// Checked square root. Returns [`NegativeValue`](DecimalError::NegativeValue)
+    /// for negative inputs; otherwise equivalent to [`sqrt`](Self::sqrt).
+    #[inline]
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn try_sqrt(self) -> crate::Result<Self> {
+        match self.sqrt() {
+            Some(result) => Ok(result),
+            None => Err(DecimalError::NegativeValue),
         }
     }
 }
