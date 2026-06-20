@@ -2036,15 +2036,22 @@ impl D64 {
         precision: usize,
     ) -> core::fmt::Result {
         if precision >= Self::DECIMALS as usize {
-            // Just display what we have
+            // At or beyond the native scale: emit the integer part, the full
+            // native fractional digits, then zero-pad up to the requested
+            // precision. `core`'s float Display never truncates a requested
+            // precision (e.g. `{:.10}` of 1.0 is "1.0000000000"), so neither do
+            // we; the previous "display what we have" branch dropped the point
+            // entirely for whole numbers and capped fractional digits at 8.
+            let abs = self.value.unsigned_abs();
             if self.value < 0 {
-                write!(f, "-{}", self.value.unsigned_abs() / Self::SCALE as u64)?;
+                write!(f, "-{}", abs / Self::SCALE as u64)?;
             } else {
-                write!(f, "{}", self.value.unsigned_abs() / Self::SCALE as u64)?;
+                write!(f, "{}", abs / Self::SCALE as u64)?;
             }
-            let frac = self.value.unsigned_abs() % Self::SCALE as u64;
-            if frac > 0 {
-                write!(f, ".{:08}", frac)?;
+            let frac = abs % Self::SCALE as u64;
+            write!(f, ".{:0width$}", frac, width = Self::DECIMALS as usize)?;
+            for _ in 0..(precision - Self::DECIMALS as usize) {
+                f.write_str("0")?;
             }
             return Ok(());
         }

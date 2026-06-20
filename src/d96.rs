@@ -2988,7 +2988,18 @@ impl D96 {
 
         // The buffer is always ASCII (digits, '.', '-'), so this never errors.
         let s = core::str::from_utf8(&buffer[..pos]).unwrap();
-        f.write_str(s)
+        f.write_str(s)?;
+
+        // Zero-pad above the native scale: `core`'s float Display honours the
+        // requested precision rather than capping it at the type's scale. The
+        // padding is streamed straight to the formatter so an arbitrarily large
+        // precision can never overflow the fixed stack buffer above. When
+        // `precision <= DECIMALS`, `precision_capped == precision` and this is a
+        // no-op.
+        for _ in 0..(precision - precision_capped) {
+            f.write_str("0")?;
+        }
+        Ok(())
     }
 }
 
