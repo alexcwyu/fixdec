@@ -959,6 +959,74 @@ impl D96 {
             None => Err(DecimalError::Overflow),
         }
     }
+
+    /// Add an integer number of whole units (`rhs` is a value, not raw sub-units):
+    /// `D96(1.5).add_i128(2) == D96(3.5)`. Returns `None` if `rhs` is out of range
+    /// or the sum leaves the 96-bit range. Companion to [`mul_i128`](Self::mul_i128).
+    #[inline(always)]
+    pub const fn add_i128(self, rhs: i128) -> Option<Self> {
+        match Self::from_i128(rhs) {
+            Some(r) => self.checked_add(r),
+            None => None,
+        }
+    }
+
+    /// Result-returning twin of [`add_i128`](Self::add_i128).
+    #[inline(always)]
+    pub const fn try_add_i128(self, rhs: i128) -> crate::Result<Self> {
+        match self.add_i128(rhs) {
+            Some(v) => Ok(v),
+            None => Err(DecimalError::Overflow),
+        }
+    }
+
+    /// Subtract an integer number of whole units:
+    /// `D96(3.5).sub_i128(2) == D96(1.5)`. Returns `None` if `rhs` is out of range
+    /// or the difference leaves the 96-bit range.
+    #[inline(always)]
+    pub const fn sub_i128(self, rhs: i128) -> Option<Self> {
+        match Self::from_i128(rhs) {
+            Some(r) => self.checked_sub(r),
+            None => None,
+        }
+    }
+
+    /// Result-returning twin of [`sub_i128`](Self::sub_i128).
+    #[inline(always)]
+    pub const fn try_sub_i128(self, rhs: i128) -> crate::Result<Self> {
+        match self.sub_i128(rhs) {
+            Some(v) => Ok(v),
+            None => Err(DecimalError::Overflow),
+        }
+    }
+
+    /// Divide by an integer divisor, **truncating toward zero** — consistent with
+    /// the `Div` / [`checked_div`](Self::checked_div) operators (it does NOT
+    /// round): `D96(10).div_i128(3) == D96(3.333333333333)`. Returns `None` if
+    /// `rhs == 0` (or the `MIN / -1` overflow).
+    #[inline(always)]
+    pub const fn div_i128(self, rhs: i128) -> Option<Self> {
+        match self.value.checked_div(rhs) {
+            // MIN / -1 == 2^95 fits i128 but leaves the 96-bit range (D96::MIN is
+            // not i128::MIN, so checked_div alone does not catch it).
+            Some(v) if v > Self::MAX.value || v < Self::MIN.value => None,
+            Some(v) => Some(Self { value: v }),
+            None => None,
+        }
+    }
+
+    /// Result-returning twin of [`div_i128`](Self::div_i128): `Err(DivisionByZero)`
+    /// when `rhs == 0`, otherwise `Err(Overflow)` (the `MIN / -1` case).
+    #[inline(always)]
+    pub const fn try_div_i128(self, rhs: i128) -> crate::Result<Self> {
+        if rhs == 0 {
+            return Err(DecimalError::DivisionByZero);
+        }
+        match self.div_i128(rhs) {
+            Some(v) => Ok(v),
+            None => Err(DecimalError::Overflow),
+        }
+    }
 }
 
 /// Optimized 96×96 multiplication

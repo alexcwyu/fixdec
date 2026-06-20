@@ -88,6 +88,48 @@ fn d64_overflowing_matches_checked_and_wrapping() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// [F6] integer-operand add/sub/div: add/sub take the integer VALUE (operand as
+// whole units); div is truncating scalar division (matches Div). + try_ twins.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn d64_integer_operand_arithmetic() {
+    let x = D64::from_str("1.5").unwrap();
+    assert_eq!(x.add_i64(2), Some(D64::from_str("3.5").unwrap()));
+    assert_eq!(x.sub_i64(2), Some(D64::from_str("-0.5").unwrap()));
+    assert_eq!(x.add_i64(2), x.checked_add(D64::from_i64(2).unwrap())); // == whole-unit add
+    // div truncates toward zero (does NOT round).
+    assert_eq!(D64::from_str("10").unwrap().div_i64(3), Some(D64::from_str("3.33333333").unwrap()));
+    assert_eq!(D64::from_str("-10").unwrap().div_i64(3), Some(D64::from_str("-3.33333333").unwrap()));
+    assert_eq!(x.div_i64(0), None);
+    assert_eq!(x.try_div_i64(0), Err(fixdec::DecimalError::DivisionByZero));
+    // out-of-range integer operand.
+    assert_eq!(D64::MAX.add_i64(i64::MAX), None);
+    assert_eq!(D64::ONE.try_add_i64(i64::MAX), Err(fixdec::DecimalError::Overflow));
+    // try twins on success.
+    assert_eq!(x.try_add_i64(2), Ok(D64::from_str("3.5").unwrap()));
+    assert_eq!(x.try_sub_i64(2), Ok(D64::from_str("-0.5").unwrap()));
+    assert_eq!(D64::from_str("10").unwrap().try_div_i64(4), Ok(D64::from_str("2.5").unwrap()));
+}
+
+#[test]
+fn d96_integer_operand_arithmetic() {
+    let x = D96::from_str("1.5").unwrap();
+    assert_eq!(x.add_i128(2), Some(D96::from_str("3.5").unwrap()));
+    assert_eq!(x.sub_i128(2), Some(D96::from_str("-0.5").unwrap()));
+    assert_eq!(D96::from_str("10").unwrap().div_i128(3), Some(D96::from_str("3.333333333333").unwrap()));
+    assert_eq!(D96::from_str("-10").unwrap().div_i128(3), Some(D96::from_str("-3.333333333333").unwrap()));
+    assert_eq!(x.div_i128(0), None);
+    assert_eq!(x.try_div_i128(0), Err(fixdec::DecimalError::DivisionByZero));
+    // MIN / -1 == 2^95 leaves the 96-bit range -> None / Overflow (the guard).
+    assert_eq!(D96::MIN.div_i128(-1), None);
+    assert_eq!(D96::MIN.try_div_i128(-1), Err(fixdec::DecimalError::Overflow));
+    // out-of-range integer operand.
+    assert_eq!(D96::MAX.add_i128(i128::MAX), None);
+    assert_eq!(x.try_add_i128(i128::MAX), Err(fixdec::DecimalError::Overflow));
+}
+
 #[test]
 fn d96_overflowing_matches_checked_and_wrapping() {
     let a = D96::from_str("2").unwrap();

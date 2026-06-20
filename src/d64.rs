@@ -687,6 +687,71 @@ impl D64 {
         }
     }
 
+    /// Add an integer number of whole units (`rhs` is a value, not raw sub-units):
+    /// `D64(1.5).add_i64(2) == D64(3.5)`. Returns `None` if `rhs` is out of range
+    /// or the sum overflows. Companion to [`mul_i64`](Self::mul_i64).
+    #[inline(always)]
+    pub const fn add_i64(self, rhs: i64) -> Option<Self> {
+        match Self::from_i64(rhs) {
+            Some(r) => self.checked_add(r),
+            None => None,
+        }
+    }
+
+    /// Result-returning twin of [`add_i64`](Self::add_i64).
+    #[inline(always)]
+    pub const fn try_add_i64(self, rhs: i64) -> crate::Result<Self> {
+        match self.add_i64(rhs) {
+            Some(v) => Ok(v),
+            None => Err(DecimalError::Overflow),
+        }
+    }
+
+    /// Subtract an integer number of whole units:
+    /// `D64(3.5).sub_i64(2) == D64(1.5)`. Returns `None` if `rhs` is out of range
+    /// or the difference overflows.
+    #[inline(always)]
+    pub const fn sub_i64(self, rhs: i64) -> Option<Self> {
+        match Self::from_i64(rhs) {
+            Some(r) => self.checked_sub(r),
+            None => None,
+        }
+    }
+
+    /// Result-returning twin of [`sub_i64`](Self::sub_i64).
+    #[inline(always)]
+    pub const fn try_sub_i64(self, rhs: i64) -> crate::Result<Self> {
+        match self.sub_i64(rhs) {
+            Some(v) => Ok(v),
+            None => Err(DecimalError::Overflow),
+        }
+    }
+
+    /// Divide by an integer divisor, **truncating toward zero** — consistent with
+    /// the `Div` / [`checked_div`](Self::checked_div) operators (it does NOT
+    /// round): `D64(10).div_i64(3) == D64(3.33333333)`. Returns `None` if
+    /// `rhs == 0` (or the `MIN / -1` overflow).
+    #[inline(always)]
+    pub const fn div_i64(self, rhs: i64) -> Option<Self> {
+        match self.value.checked_div(rhs) {
+            Some(v) => Some(Self { value: v }),
+            None => None,
+        }
+    }
+
+    /// Result-returning twin of [`div_i64`](Self::div_i64): `Err(DivisionByZero)`
+    /// when `rhs == 0`, otherwise `Err(Overflow)` (the `MIN / -1` case).
+    #[inline(always)]
+    pub const fn try_div_i64(self, rhs: i64) -> crate::Result<Self> {
+        if rhs == 0 {
+            return Err(DecimalError::DivisionByZero);
+        }
+        match self.div_i64(rhs) {
+            Some(v) => Ok(v),
+            None => Err(DecimalError::Overflow),
+        }
+    }
+
     /// Computes (self * mul) + add with only one rounding step
     /// More accurate and faster than separate mul + add
     pub const fn mul_add(self, mul: Self, add: Self) -> Option<Self> {
