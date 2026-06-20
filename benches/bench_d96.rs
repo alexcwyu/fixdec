@@ -2,7 +2,7 @@ use std::hint::black_box;
 use std::str::FromStr;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use fixdec::D96;
+use fixdec::{D96, RoundingStrategy};
 
 fn bench_addition(c: &mut Criterion) {
     c.bench_function("d96_addition", |b| {
@@ -108,6 +108,90 @@ fn bench_rounding(c: &mut Criterion) {
     });
 }
 
+// round_dp_with_strategy on the common (banker's) strategy that round_dp uses,
+// so this is directly comparable to bench_rounding above.
+fn bench_round_dp_with_strategy_common(c: &mut Criterion) {
+    c.bench_function("d96_round_dp_with_strategy_common", |b| {
+        let d = D96::from_str("123.456789").unwrap();
+        b.iter(|| {
+            black_box(black_box(d).round_dp_with_strategy(2, RoundingStrategy::MidpointNearestEven))
+        });
+    });
+}
+
+// A non-default directed strategy (no midpoint tie logic) to isolate strategy
+// dispatch cost from the banker's-rounding path.
+fn bench_round_dp_with_strategy_directed(c: &mut Criterion) {
+    c.bench_function("d96_round_dp_with_strategy_directed", |b| {
+        let d = D96::from_str("123.456789").unwrap();
+        b.iter(|| black_box(black_box(d).round_dp_with_strategy(2, RoundingStrategy::AwayFromZero)));
+    });
+}
+
+// In-range divide-then-round: dividend * 10^dp stays within i128, the fast path.
+fn bench_checked_div_rounded_small(c: &mut Criterion) {
+    c.bench_function("d96_checked_div_rounded_small", |b| {
+        let x = D96::from_str("123.456789").unwrap();
+        let y = D96::from_str("9.876543").unwrap();
+        b.iter(|| {
+            black_box(black_box(x).checked_div_rounded(
+                black_box(y),
+                2,
+                RoundingStrategy::MidpointNearestEven,
+            ))
+        });
+    });
+}
+
+// Wide divide-then-round: a large dividend scaled to full 12 dp overflows i128,
+// forcing the 192-bit wide divide that fixed the earlier range cliff. Worst case.
+fn bench_checked_div_rounded_wide(c: &mut Criterion) {
+    c.bench_function("d96_checked_div_rounded_wide", |b| {
+        let x = D96::from_str("1234567890123456.789012").unwrap();
+        let y = D96::from_str("9.876543").unwrap();
+        b.iter(|| {
+            black_box(black_box(x).checked_div_rounded(
+                black_box(y),
+                12,
+                RoundingStrategy::MidpointNearestEven,
+            ))
+        });
+    });
+}
+
+// Snap to a price tick (0.01) — the exchange-grid rounding path.
+fn bench_checked_quantize(c: &mut Criterion) {
+    c.bench_function("d96_checked_quantize", |b| {
+        let d = D96::from_str("123.456789").unwrap();
+        let tick = D96::from_str("0.01").unwrap();
+        b.iter(|| {
+            black_box(black_box(d).checked_quantize(black_box(tick), RoundingStrategy::MidpointNearestEven))
+        });
+    });
+}
+
+// Scalar-integer helpers: decimal +/- integer count and split-N, no second parse.
+fn bench_add_i128(c: &mut Criterion) {
+    c.bench_function("d96_add_i128", |b| {
+        let d = D96::from_str("123.456789").unwrap();
+        b.iter(|| black_box(black_box(d).add_i128(black_box(1000))));
+    });
+}
+
+fn bench_sub_i128(c: &mut Criterion) {
+    c.bench_function("d96_sub_i128", |b| {
+        let d = D96::from_str("123.456789").unwrap();
+        b.iter(|| black_box(black_box(d).sub_i128(black_box(1000))));
+    });
+}
+
+fn bench_div_i128(c: &mut Criterion) {
+    c.bench_function("d96_div_i128", |b| {
+        let d = D96::from_str("123.456789").unwrap();
+        b.iter(|| black_box(black_box(d).div_i128(black_box(7))));
+    });
+}
+
 fn bench_binary_write_read(c: &mut Criterion) {
     c.bench_function("d96_binary_write_read", |b| {
         let d = D96::from_str("123.456789").unwrap();
@@ -181,6 +265,14 @@ criterion_group!(
     bench_large_price_times_small_qty_d96,
     bench_sum,
     bench_rounding,
+    bench_round_dp_with_strategy_common,
+    bench_round_dp_with_strategy_directed,
+    bench_checked_div_rounded_small,
+    bench_checked_div_rounded_wide,
+    bench_checked_quantize,
+    bench_add_i128,
+    bench_sub_i128,
+    bench_div_i128,
     bench_binary_write_read,
     bench_comparison,
     bench_sqrt,

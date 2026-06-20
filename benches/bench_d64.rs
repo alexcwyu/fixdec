@@ -2,7 +2,7 @@ use std::hint::black_box;
 use std::str::FromStr;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use fixdec::D64;
+use fixdec::{D64, RoundingStrategy};
 
 fn bench_addition(c: &mut Criterion) {
     c.bench_function("d64_addition", |b| {
@@ -97,6 +97,74 @@ fn bench_rounding(c: &mut Criterion) {
     });
 }
 
+// round_dp_with_strategy on the common (banker's) strategy that round_dp uses,
+// so this is directly comparable to bench_rounding above.
+fn bench_round_dp_with_strategy_common(c: &mut Criterion) {
+    c.bench_function("d64_round_dp_with_strategy_common", |b| {
+        let d = D64::from_str("123.456789").unwrap();
+        b.iter(|| {
+            black_box(black_box(d).round_dp_with_strategy(2, RoundingStrategy::MidpointNearestEven))
+        });
+    });
+}
+
+// A non-default directed strategy (no midpoint tie logic) to isolate strategy
+// dispatch cost from the banker's-rounding path.
+fn bench_round_dp_with_strategy_directed(c: &mut Criterion) {
+    c.bench_function("d64_round_dp_with_strategy_directed", |b| {
+        let d = D64::from_str("123.456789").unwrap();
+        b.iter(|| black_box(black_box(d).round_dp_with_strategy(2, RoundingStrategy::AwayFromZero)));
+    });
+}
+
+// Fused divide-then-round at a target scale, the common money path.
+fn bench_checked_div_rounded(c: &mut Criterion) {
+    c.bench_function("d64_checked_div_rounded", |b| {
+        let x = D64::from_str("123.456789").unwrap();
+        let y = D64::from_str("9.876543").unwrap();
+        b.iter(|| {
+            black_box(black_box(x).checked_div_rounded(
+                black_box(y),
+                2,
+                RoundingStrategy::MidpointNearestEven,
+            ))
+        });
+    });
+}
+
+// Snap to a price tick (0.01) — the exchange-grid rounding path.
+fn bench_checked_quantize(c: &mut Criterion) {
+    c.bench_function("d64_checked_quantize", |b| {
+        let d = D64::from_str("123.456789").unwrap();
+        let tick = D64::from_str("0.01").unwrap();
+        b.iter(|| {
+            black_box(black_box(d).checked_quantize(black_box(tick), RoundingStrategy::MidpointNearestEven))
+        });
+    });
+}
+
+// Scalar-integer helpers: decimal +/- integer count and split-N, no second parse.
+fn bench_add_i64(c: &mut Criterion) {
+    c.bench_function("d64_add_i64", |b| {
+        let d = D64::from_str("123.456789").unwrap();
+        b.iter(|| black_box(black_box(d).add_i64(black_box(1000))));
+    });
+}
+
+fn bench_sub_i64(c: &mut Criterion) {
+    c.bench_function("d64_sub_i64", |b| {
+        let d = D64::from_str("123.456789").unwrap();
+        b.iter(|| black_box(black_box(d).sub_i64(black_box(1000))));
+    });
+}
+
+fn bench_div_i64(c: &mut Criterion) {
+    c.bench_function("d64_div_i64", |b| {
+        let d = D64::from_str("123.456789").unwrap();
+        b.iter(|| black_box(black_box(d).div_i64(black_box(7))));
+    });
+}
+
 fn bench_binary_write_read(c: &mut Criterion) {
     c.bench_function("d64_binary_write_read", |b| {
         let d = D64::from_str("123.456789").unwrap();
@@ -159,6 +227,13 @@ criterion_group!(
     bench_price_times_quantity_mul_d64,
     bench_sum,
     bench_rounding,
+    bench_round_dp_with_strategy_common,
+    bench_round_dp_with_strategy_directed,
+    bench_checked_div_rounded,
+    bench_checked_quantize,
+    bench_add_i64,
+    bench_sub_i64,
+    bench_div_i64,
     bench_binary_write_read,
     bench_comparison,
     bench_sqrt,
