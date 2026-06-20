@@ -9,7 +9,8 @@ use core::str::FromStr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 use crate::internal::{
-    banker_round_i64, pow10_i64, pow10_i128, pow10_u64, round_div_pow10_i128, round_half_away_f64,
+    banker_round_i64, gcd_u128, pow10_i64, pow10_i128, pow10_u64, round_div_pow10_i128,
+    round_half_away_f64,
 };
 use crate::{D96, DecimalError};
 
@@ -257,6 +258,26 @@ impl D64 {
     #[must_use]
     pub const fn normalize(self) -> Self {
         self
+    }
+
+    /// Returns this value as an exact `(numerator, denominator)` ratio in lowest
+    /// terms with a positive denominator — `1.5` is `(3, 2)`, `-0.25` is
+    /// `(-1, 4)`, and `ZERO` is `(0, 1)`.
+    ///
+    /// The ratio is fully reduced, matching the Python
+    /// `Fraction`/`float.as_integer_ratio` convention, so it is *not* the raw
+    /// fixed-scale form: the unreduced ratio is always `(to_raw(), SCALE)` and the
+    /// minimal-decimal decomposition is `(mantissa(), 10^scale())`. Reduction
+    /// divides out `gcd(|raw|, SCALE)` (a power of ten), so the denominator is
+    /// always a divisor of `10^DECIMALS` and fits `u64`.
+    #[inline]
+    #[must_use]
+    pub const fn as_integer_ratio(self) -> (i64, u64) {
+        let denom = Self::SCALE as u128;
+        // `g` divides both `|value|` and `SCALE` exactly and is always >= 1, so
+        // both quotients are exact and the denominator stays positive.
+        let g = gcd_u128((self.value as i128).unsigned_abs(), denom);
+        (self.value / g as i64, (denom / g) as u64)
     }
 
     /// Creates a D64 from integer and fractional parts at compile time

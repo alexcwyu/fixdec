@@ -115,6 +115,19 @@ macro_rules! define_banker_round {
 define_banker_round!(banker_round_i64, i64);
 define_banker_round!(banker_round_i128, i128);
 
+/// Euclid's GCD on unsigned 128-bit values. `gcd(x, 0) == x`, `gcd(0, y) == y`.
+/// Used to reduce `as_integer_ratio` to lowest terms (the denominator is always a
+/// power of ten, so the gcd is a divisor of `SCALE`).
+#[inline]
+pub(crate) const fn gcd_u128(mut a: u128, mut b: u128) -> u128 {
+    while b != 0 {
+        let t = b;
+        b = a % b;
+        a = t;
+    }
+    a
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
