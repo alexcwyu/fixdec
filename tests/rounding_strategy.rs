@@ -6,6 +6,110 @@
 use core::str::FromStr;
 use fixdec::RoundingStrategy::*;
 use fixdec::{D64, D96, RoundingStrategy};
+use proptest::prelude::*;
+
+const STRATS: [RoundingStrategy; 7] = [
+    MidpointNearestEven,
+    MidpointAwayFromZero,
+    MidpointTowardZero,
+    ToZero,
+    AwayFromZero,
+    ToNegativeInfinity,
+    ToPositiveInfinity,
+];
+
+/// Independent (structurally different) reference rounding of `num/den`
+/// (`den > 0`) to an integer, used as an oracle for `checked_div_rounded`.
+fn ref_round(num: i128, den: i128, s: RoundingStrategy) -> i128 {
+    use core::cmp::Ordering::*;
+    let q = num / den;
+    let r = num - q * den;
+    if r == 0 {
+        return q;
+    }
+    let neg = num < 0;
+    let cmp = (2 * r.abs()).cmp(&den);
+    let away = match s {
+        ToZero => false,
+        AwayFromZero => true,
+        ToPositiveInfinity => !neg,
+        ToNegativeInfinity => neg,
+        MidpointNearestEven => match cmp {
+            Greater => true,
+            Less => false,
+            Equal => q % 2 != 0,
+        },
+        MidpointAwayFromZero => cmp != Less,
+        MidpointTowardZero => cmp == Greater,
+    };
+    if away {
+        if neg { q - 1 } else { q + 1 }
+    } else {
+        q
+    }
+}
+
+/// i128 reference for `D96::checked_div_rounded`, valid only where `self_raw *
+/// 10^dp` fits `i128` (the proptest filters on that). Returns the expected raw.
+fn ref_div_rounded(self_raw: i128, rhs_raw: i128, dp: u8, s: RoundingStrategy) -> Option<i128> {
+    let factor = 10i128.checked_pow(dp as u32)?;
+    let num = self_raw.checked_mul(factor)?;
+    let den = rhs_raw;
+    let (num, den) = if den < 0 { (-num, -den) } else { (num, den) };
+    let at_dp = ref_round(num, den, s);
+    let full = at_dp.checked_mul(10i128.pow((12 - dp) as u32))?;
+    if full > D96::MAX.to_raw() || full < D96::MIN.to_raw() {
+        None
+    } else {
+        Some(full)
+    }
+}
+
+const MIN96: i128 = -39_614_081_257_132_168_796_771_975_168;
+const MAX96: i128 = 39_614_081_257_132_168_796_771_975_167;
+// |self_raw| * 10^12 stays under i128::MAX (~1.7e38) for this bound, so the i128
+// oracle is always valid here (no proptest rejects). This still spans the whole
+// fast u128 path; the 192-bit wide path is covered by the full-range test below.
+const ORACLE_LIM: i128 = 100_000_000_000_000_000_000_000_000; // 1e26
+
+proptest! {
+    // Exact rounding direction vs the independent i128 oracle, over all 7
+    // strategies / signs / ties (divisor spans the full range, so quotients can
+    // still overflow -> both sides agree on None).
+    #[test]
+    fn d96_div_rounded_matches_oracle(
+        self_raw in -ORACLE_LIM..=ORACLE_LIM,
+        rhs_raw in MIN96..=MAX96,
+        dp in 0u8..=12,
+        si in 0usize..7,
+    ) {
+        prop_assume!(rhs_raw != 0);
+        let s = STRATS[si];
+        let got = D96::from_raw(self_raw)
+            .checked_div_rounded(D96::from_raw(rhs_raw), dp, s)
+            .map(|d| d.to_raw());
+        prop_assert_eq!(got, ref_div_rounded(self_raw, rhs_raw, dp, s));
+    }
+
+    // Full 96-bit range, exercising the 192-bit wide numerator path: ToZero at
+    // full scale equals the truncating checked_div, and every strategy stays
+    // within one full-scale ulp of it.
+    #[test]
+    fn d96_div_rounded_wide_consistent(
+        self_raw in MIN96..=MAX96,
+        rhs_raw in MIN96..=MAX96,
+        si in 0usize..7,
+    ) {
+        prop_assume!(rhs_raw != 0);
+        let a = D96::from_raw(self_raw);
+        let b = D96::from_raw(rhs_raw);
+        let trunc = a.checked_div(b);
+        prop_assert_eq!(a.checked_div_rounded(b, 12, ToZero), trunc);
+        if let (Some(r), Some(t)) = (a.checked_div_rounded(b, 12, STRATS[si]), trunc) {
+            prop_assert!((r.to_raw() - t.to_raw()).abs() <= 1);
+        }
+    }
+}
 
 #[test]
 fn default_strategy_is_banker() {
@@ -123,9 +227,17 @@ fn checked_div_rounded_d96() {
     assert_eq!(ten.checked_div_rounded(three, 12, ToZero), ten.checked_div(three));
     assert_eq!(ten.checked_div_rounded(D96::ZERO, 2, ToZero), None);
 
-    // Documented intermediate-overflow boundary: |self| near MAX with high dp
-    // overflows i128 -> None; a smaller dp on the same operands works.
+    // No range cliff: |self| near MAX at full dp is computed exactly via the
+    // 192-bit numerator path (this previously returned None). ToZero at dp==12
+    // matches the truncating checked_div; the tie rounds up by exactly one ulp.
     let two = D96::from_str("2").unwrap();
-    assert_eq!(D96::MAX.checked_div_rounded(two, 12, MidpointNearestEven), None);
-    assert!(D96::MAX.checked_div_rounded(two, 2, MidpointNearestEven).is_some());
+    assert_eq!(D96::MAX.checked_div_rounded(two, 12, ToZero), D96::MAX.checked_div(two));
+    let trunc = D96::MAX.checked_div(two).unwrap();
+    assert_eq!(
+        D96::MAX.checked_div_rounded(two, 12, MidpointNearestEven),
+        Some(D96::from_raw(trunc.to_raw() + 1)) // MAX is odd, MAX/2 is an exact .5 tie -> even (up)
+    );
+    assert_eq!(D96::MAX.checked_div_rounded(two, 12, ToPositiveInfinity), Some(D96::from_raw(trunc.to_raw() + 1)));
+    // A high-dp division on a large value that the i128 path used to reject.
+    assert!(D96::MAX.checked_div_rounded(three, 12, MidpointNearestEven).is_some());
 }

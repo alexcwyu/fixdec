@@ -9,8 +9,8 @@ use core::str::FromStr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 use crate::internal::{
-    apply_rounding, banker_round_i128, gcd_u128, pow10_i128, pow10_u128, round_div_pow10_i128,
-    round_half_away_f64,
+    apply_rounding, apply_rounding_unsigned, banker_round_i128, gcd_u128, pow10_i128, pow10_u128,
+    round_div_pow10_i128, round_half_away_f64,
 };
 use crate::{D64, DecimalError, RoundingStrategy};
 
@@ -1372,6 +1372,61 @@ const fn div_192_by_u128(low: u128, high: u128, divisor: u128) -> Option<u128> {
     }
 }
 
+/// Base-2^32 long division returning `(quotient mod 2^128, remainder)`. Same
+/// algorithm as [`div_256_by_u128_base32`] but also yields the final remainder
+/// (`< divisor`), for rounded division.
+#[inline(always)]
+const fn div_256_by_u128_base32_rem(low: u128, high: u128, divisor: u128) -> (u128, u128) {
+    let limbs = [
+        (high >> 96) & 0xFFFF_FFFF,
+        (high >> 64) & 0xFFFF_FFFF,
+        (high >> 32) & 0xFFFF_FFFF,
+        high & 0xFFFF_FFFF,
+        (low >> 96) & 0xFFFF_FFFF,
+        (low >> 64) & 0xFFFF_FFFF,
+        (low >> 32) & 0xFFFF_FFFF,
+        low & 0xFFFF_FFFF,
+    ];
+    let mut rem: u128 = 0;
+    let mut quo: u128 = 0;
+    let mut i = 0;
+    while i < 8 {
+        let cur = (rem << 32) | limbs[i];
+        quo = (quo << 32) | (cur / divisor);
+        rem = cur % divisor;
+        i += 1;
+    }
+    (quo, rem)
+}
+
+/// Like [`div_192_by_u128`] but also returns the remainder (`< divisor`), so the
+/// caller can round before restoring scale. Returns `None` if the quotient would
+/// not fit `u128` (`high >= divisor`) or `divisor == 0`.
+#[inline(always)]
+const fn div_192_by_u128_rem(low: u128, high: u128, divisor: u128) -> Option<(u128, u128)> {
+    if divisor == 0 || high >= divisor {
+        return None;
+    }
+    if divisor <= u64::MAX as u128 {
+        // Base-2^64 long division; remainders stay < divisor <= u64::MAX, so the
+        // `<< 64` shifts never overflow a u128.
+        let low_hi = low >> 64;
+        let low_lo = low & 0xFFFF_FFFF_FFFF_FFFF;
+
+        let dividend_mid = (high << 64) | low_hi;
+        let q_mid = dividend_mid / divisor;
+        let r_mid = dividend_mid % divisor;
+
+        let dividend_low = (r_mid << 64) | low_lo;
+        let q_low = dividend_low / divisor;
+        let r_low = dividend_low % divisor;
+
+        Some(((q_mid << 64) | q_low, r_low))
+    } else {
+        Some(div_256_by_u128_base32_rem(low, high, divisor))
+    }
+}
+
 /// Wrapping version of 192-bit division by u128.
 #[inline(always)]
 const fn div_192_by_u128_wrapping(low: u128, high: u128, divisor: u128) -> u128 {
@@ -1737,10 +1792,9 @@ impl D96 {
     /// `strategy` — unlike `/` and [`checked_div`](Self::checked_div), which
     /// truncate toward zero at full scale.
     ///
-    /// Returns `None` if `rhs` is zero, if `decimal_places > DECIMALS`, if the
-    /// result overflows the 96-bit range, or if the intermediate
-    /// `self * 10^decimal_places` overflows `i128` (only possible for `|self|`
-    /// near `MAX` with `decimal_places >= 10`; use a smaller `decimal_places`).
+    /// Returns `None` if `rhs` is zero, if `decimal_places > DECIMALS`, or if the
+    /// result overflows the 96-bit range. Any in-range result is computed exactly
+    /// (a 192-bit numerator path handles `|self|` up to `MAX` at any `dp`).
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn checked_div_rounded(
         self,
@@ -1752,21 +1806,44 @@ impl D96 {
             return None;
         }
         // value(self)/value(rhs) == self/rhs (SCALE cancels). Round
-        // self.value * 10^dp / rhs.value at dp scale, then restore full scale.
-        let num = match self.value.checked_mul(pow10_i128(decimal_places)) {
-            Some(n) => n,
-            None => return None, // intermediate overflow (|self| near MAX, high dp)
+        // (|self| * 10^dp) / |rhs| to an integer at dp scale, then restore. The
+        // numerator can exceed i128 near MAX (e.g. dp == 12), so reuse the same
+        // 192-bit wide path as `checked_div`, but keep the remainder so we can
+        // round before restoring scale (no i128 intermediate-overflow cliff).
+        let result_negative = (self.value < 0) != (rhs.value < 0);
+        let a = self.value.unsigned_abs();
+        let b = rhs.value.unsigned_abs();
+        let factor = pow10_u128(decimal_places);
+
+        let (q, r) = if a <= u128::MAX / factor {
+            // Fast path: the numerator fits a u128 (common case / small dp).
+            let n = a * factor;
+            (n / b, n % b)
+        } else {
+            // Wide path: `|self| * 10^dp` needs up to ~136 bits.
+            let (low, high) = mul_u128_by_small(a, factor);
+            match div_192_by_u128_rem(low, high, b) {
+                Some(qr) => qr,
+                None => return None, // quotient exceeds u128 -> out of range
+            }
         };
-        let div = rhs.value;
-        // Normalise to a positive divisor so the remainder carries the dividend's
-        // sign (both magnitudes are below i128::MAX, so negation is safe).
-        let (num, div) = if div < 0 { (-num, -div) } else { (num, div) };
-        let at_dp = apply_rounding(num / div, num % div, div, strategy);
-        let restore = pow10_i128(Self::DECIMALS - decimal_places);
-        match at_dp.checked_mul(restore) {
-            Some(v) if v >= Self::MIN.value && v <= Self::MAX.value => Some(Self { value: v }),
-            _ => None,
+
+        let mag = apply_rounding_unsigned(q, r, b, result_negative, strategy);
+        let restore = pow10_u128(Self::DECIMALS - decimal_places);
+        let full = match mag.checked_mul(restore) {
+            Some(v) => v,
+            None => return None,
+        };
+        if full > Self::max_magnitude(result_negative) {
+            return None;
         }
+        Some(Self {
+            value: if result_negative {
+                -(full as i128)
+            } else {
+                full as i128
+            },
+        })
     }
 
     /// Rounds `self` to the nearest multiple of `tick` using `strategy` — a

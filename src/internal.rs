@@ -161,6 +161,44 @@ pub(crate) const fn apply_rounding(
     }
 }
 
+/// Unsigned counterpart of [`apply_rounding`] for the wide D96 division path,
+/// where the quotient magnitude can exceed `i128::MAX` before the final range
+/// check. `q` and `r` are unsigned magnitudes (`r < divisor`, `divisor > 0`) and
+/// `neg` is the sign of the true result; returns the rounded magnitude. The
+/// midpoint compares `2*r` against `divisor` (fits `u128`: `r < divisor <= 2^95`).
+#[inline]
+pub(crate) const fn apply_rounding_unsigned(
+    q: u128,
+    r: u128,
+    divisor: u128,
+    neg: bool,
+    strategy: crate::RoundingStrategy,
+) -> u128 {
+    use crate::RoundingStrategy::*;
+    if r == 0 {
+        return q;
+    }
+    let round_up = match strategy {
+        ToZero => false,
+        AwayFromZero => true,
+        ToPositiveInfinity => !neg,
+        ToNegativeInfinity => neg,
+        MidpointNearestEven => {
+            let twice = 2 * r;
+            if twice > divisor {
+                true
+            } else if twice < divisor {
+                false
+            } else {
+                q % 2 == 1 // exact tie -> round to even
+            }
+        }
+        MidpointAwayFromZero => 2 * r >= divisor, // tie -> away
+        MidpointTowardZero => 2 * r > divisor,    // tie -> toward zero
+    };
+    if round_up { q + 1 } else { q }
+}
+
 /// Euclid's GCD on unsigned 128-bit values. `gcd(x, 0) == x`, `gcd(0, y) == y`.
 /// Used to reduce `as_integer_ratio` to lowest terms (the denominator is always a
 /// power of ten, so the gcd is a divisor of `SCALE`).
