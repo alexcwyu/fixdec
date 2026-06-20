@@ -51,14 +51,28 @@ fn d64_sqrt_two_floors_at_scale() {
 
 #[test]
 fn d64_negative_has_no_root() {
-    assert_eq!(D64::from_i32(-4).sqrt(), None);
-    assert_eq!(D64::from_i32(-4).try_sqrt(), Err(DecimalError::NegativeValue));
-    assert_eq!(D64::MIN.sqrt(), None);
+    // Spread of negatives incl. the boundary cases -1 (smallest magnitude) and
+    // MIN+1 (largest-magnitude-adjacent) — the sign gate is `self.value < 0`.
+    for r in [-1i64, -4 * D64::SCALE, i64::MIN + 1, i64::MIN] {
+        assert_eq!(D64::from_raw(r).sqrt(), None, "raw={r}");
+        assert_eq!(
+            D64::from_raw(r).try_sqrt(),
+            Err(DecimalError::NegativeValue),
+            "raw={r}"
+        );
+    }
+}
+
+#[test]
+fn d64_smallest_positive_is_exact() {
+    // raw=1 -> radicand = SCALE (a perfect square): isqrt(1e8) = 10_000.
+    assert_eq!(D64::from_raw(1).sqrt().unwrap().to_raw(), 10_000);
 }
 
 #[test]
 fn d64_max_does_not_overflow() {
     d64_assert_invariant(i64::MAX);
+    d64_assert_invariant(i64::MAX - 1);
 }
 
 // --- D96: the radicand `raw * 1e12` (< 2^135) and `(y+1)^2` (y < 2^68) both fit
@@ -114,6 +128,20 @@ fn d96_perfect_squares_are_exact() {
 }
 
 #[test]
+fn d96_smallest_positive_is_exact() {
+    // raw=1 -> radicand = SCALE (a perfect square): isqrt(1e12) = 1_000_000.
+    assert_eq!(D96::from_raw(1).sqrt().unwrap().to_raw(), 1_000_000);
+}
+
+#[test]
+fn d96_sqrt_two_floors_at_scale() {
+    // Non-perfect square truncated at the 1e-12 grid: sqrt(2) = 1.41421356237...
+    // floored to 12dp = 1.414213562373 (floor of sqrt(2e12*1e12)).
+    let y = D96::from_i32(2).sqrt().unwrap();
+    assert_eq!(y.to_raw(), 1_414_213_562_373);
+}
+
+#[test]
 fn d96_large_perfect_squares_hit_the_wide_path() {
     // raw = value*1e12; radicand = raw*1e12. For these, radicand > 2^128 so the
     // wide (192-bit) sqrt path is exercised, yet the answer is exact.
@@ -126,16 +154,59 @@ fn d96_large_perfect_squares_hit_the_wide_path() {
 }
 
 #[test]
+fn d96_sqrt_fast_wide_seam() {
+    // The high==0 (u128 fast path) vs high!=0 (192-bit binary search) seam sits
+    // at raw = floor((2^128-1)/1e12); raw <= seam is fast, raw > seam is wide.
+    // The root crosses a limb boundary here (2^64-1 on the fast side, 2^64 on
+    // the wide side), so pin both sides deterministically with the exact oracle.
+    let seam: i128 = 340_282_366_920_938_463_463_374_607;
+    for raw in [seam - 1, seam, seam + 1, seam + 2] {
+        d96_assert_invariant(raw);
+    }
+}
+
+#[test]
+fn d96_sqrt_wide_off_by_one() {
+    // A large perfect square (value 1e16 -> raw 1e28, radicand 1e40 > 2^128) and
+    // the value one ULP below it: roots must be exactly 1e20 and 1e20 - 1, which
+    // pins the wide-path off-by-one between consecutive integer roots.
+    let sq: i128 = 10_000_000_000_000_000_000_000_000_000; // 1e28
+    assert_eq!(D96::from_raw(sq).sqrt().unwrap().to_raw(), 100_000_000_000_000_000_000); // 1e20
+    assert_eq!(D96::from_raw(sq - 1).sqrt().unwrap().to_raw(), 99_999_999_999_999_999_999);
+    d96_assert_invariant(sq);
+    d96_assert_invariant(sq - 1);
+}
+
+#[test]
 fn d96_negative_has_no_root() {
-    assert_eq!(D96::from_i32(-4).sqrt(), None);
-    assert_eq!(D96::from_i32(-4).try_sqrt(), Err(DecimalError::NegativeValue));
-    assert_eq!(D96::MIN.sqrt(), None);
+    for r in [-1i128, -4 * D96::SCALE, -D96_MAX_RAW, D96::MIN.to_raw()] {
+        assert_eq!(D96::from_raw(r).sqrt(), None, "raw={r}");
+        assert_eq!(
+            D96::from_raw(r).try_sqrt(),
+            Err(DecimalError::NegativeValue),
+            "raw={r}"
+        );
+    }
 }
 
 #[test]
 fn d96_max_does_not_overflow() {
     // The original bug: D96::MAX.sqrt() panicked (debug) / wrapped (release).
     d96_assert_invariant(D96_MAX_RAW);
+    d96_assert_invariant(D96_MAX_RAW - 1);
+}
+
+/// `try_sqrt` Ok path + both methods usable in a `const` context (they are
+/// `const fn` — this fails to compile if `const` is ever dropped).
+#[test]
+fn sqrt_try_ok_and_const_context() {
+    assert_eq!(D64::from_i32(9).try_sqrt(), Ok(D64::from_i32(3)));
+    assert_eq!(D96::from_i32(9).try_sqrt(), Ok(D96::from_i32(3)));
+
+    const Y64: Option<D64> = D64::from_i32(9).sqrt();
+    const Y96: Option<D96> = D96::from_i32(9).sqrt();
+    assert_eq!(Y64, Some(D64::from_i32(3)));
+    assert_eq!(Y96, Some(D96::from_i32(3)));
 }
 
 proptest! {
