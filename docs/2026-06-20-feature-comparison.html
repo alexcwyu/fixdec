@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fixdec Feature Comparison - D64/D96 vs rust_decimal, fpdec, fixed, f64</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #ffffff;
+      --fg: #17202a;
+      --muted: #5d6773;
+      --line: #d9dee5;
+      --head: #eef2f6;
+      --accent: #0f766e;
+      --code: #f6f8fa;
+      --yes: #157347;
+      --no: #b02a37;
+      --partial: #b5790a;
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 15px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 36px 24px 56px;
+    }
+    h1, h2, h3 {
+      line-height: 1.2;
+      margin: 0 0 14px;
+    }
+    h1 {
+      font-size: 30px;
+      border-bottom: 2px solid var(--line);
+      padding-bottom: 16px;
+      margin-bottom: 18px;
+    }
+    h2 {
+      font-size: 21px;
+      margin-top: 38px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 6px;
+    }
+    h3 { font-size: 17px; margin-top: 26px; }
+    p, li { color: var(--fg); }
+    .meta { color: var(--muted); margin-bottom: 24px; }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: var(--code);
+      border-radius: 6px;
+    }
+    code { padding: 0.1em 0.3em; }
+    pre {
+      padding: 14px 16px;
+      overflow: auto;
+      border: 1px solid var(--line);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 22px;
+      font-size: 13.5px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 7px 9px;
+      vertical-align: top;
+    }
+    th {
+      background: var(--head);
+      text-align: left;
+      font-weight: 650;
+    }
+    td.c, th.c { text-align: center; }
+    th.fx { background: #e7f3f1; }
+    td.cap { font-weight: 600; white-space: nowrap; }
+    .yes { color: var(--yes); font-weight: 700; }
+    .no  { color: var(--no);  font-weight: 700; }
+    .par { color: var(--partial); font-weight: 700; }
+    .sub { color: var(--muted); font-size: 12px; display: block; }
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: #f3fbf9;
+      padding: 12px 14px;
+      margin: 18px 0;
+    }
+    .warn {
+      border-left: 4px solid var(--partial);
+      background: #fdf8ec;
+      padding: 12px 14px;
+      margin: 18px 0;
+    }
+    .legend { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+    .tag {
+      display: inline-block; font-size: 11px; font-weight: 700;
+      padding: 1px 7px; border-radius: 10px; color: #fff; margin-right: 6px;
+    }
+    .p0 { background: #b02a37; }
+    .p1 { background: #b5790a; }
+    .p2 { background: #0f766e; }
+    .p3 { background: #5d6773; }
+    footer { color: var(--muted); font-size: 12.5px; margin-top: 40px; border-top: 1px solid var(--line); padding-top: 14px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>fixdec Feature Comparison</h1>
+  <p class="meta">
+    Date: 2026-06-20 &nbsp;·&nbsp; Repository: <code>fixdec</code> &nbsp;·&nbsp; Branch: <code>feature/missing-api</code><br>
+    Scope: <code>fixdec::D64</code> / <code>fixdec::D96</code> vs <code>rust_decimal</code>, <code>fpdec</code>, <code>fixed</code>, <code>f64</code>.<br>
+    Companion docs: <code>2026-06-20-rust-math-library-comparison.md</code> (use-case guide), <code>2026-06-20-fair-benchmark.html</code> (latency).
+  </p>
+
+  <div class="callout">
+    <strong>How to read this.</strong> <code>fixed</code> is <em>binary</em> fixed-point — exact for halves and quarters, <em>inexact</em> for <code>0.1</code>, exactly like <code>f64</code>; it is a speed/DSP reference, not a money type. The true decimal peers are <strong>rust_decimal</strong> and <strong>fpdec</strong>. Every claim below was checked against source (<code>src/d64.rs</code>, <code>src/d96.rs</code>, <code>Cargo.toml</code>) or the peers' published docs on 2026-06-20.
+  </div>
+
+  <p class="legend">Legend: <span class="yes">✓</span> first-class &nbsp; <span class="par">◐</span> partial / via companion crate / with caveats &nbsp; <span class="no">✗</span> absent. Footnote markers link to the notes under each table.</p>
+
+  <h2>At-a-glance positioning</h2>
+  <p>Condensed per-type trade-off. Originated in an OpenAI Codex review and independently re-verified against each crate's documentation on 2026-06-20 — every cell checked accurate, peer strengths credited rather than strawmanned.</p>
+  <table>
+    <thead><tr><th>Type</th><th>Best use case</th><th>Strength</th><th>Caveat</th></tr></thead>
+    <tbody>
+      <tr><td class="cap">D64</td><td>Prices, rates, fees needing ≤ 8 dp</td><td>Very fast, tiny, decimal-exact, no_std</td><td>Range and scale fixed</td></tr>
+      <tr><td class="cap">D96</td><td>Larger financial / crypto values needing ≤ 12 dp</td><td>Fast decimal with a bigger range</td><td>More expensive than D64; still fixed 12 dp</td></tr>
+      <tr><td class="cap">fixed</td><td>Binary fixed-point DSP / control / generic numeric code</td><td>Huge API, many overflow modes, bit-level control</td><td>Not decimal-exact for money</td></tr>
+      <tr><td class="cap">fpdec</td><td>Decimal values with variable fractional digits</td><td>Good rounding / quantize / ratio model</td><td>Slower and broader than D64/D96 hot-path style</td></tr>
+      <tr><td class="cap">rust_decimal</td><td>General application / business decimal</td><td>Mature surface: scientific parsing, maths, rounding strategies</td><td>Much slower division; heavier abstraction</td></tr>
+      <tr><td class="cap">f64</td><td>Simulation / analytics where tiny binary error is acceptable</td><td>Hardware-fast mul/div, rich math</td><td>Not exact decimal; NaN/Inf; unsafe for money</td></tr>
+    </tbody>
+  </table>
+
+  <h2>1. Representation &amp; numeric semantics</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Property</th>
+        <th class="fx">D64 / D96 (fixdec)</th>
+        <th>rust_decimal</th>
+        <th>fpdec</th>
+        <th>fixed</th>
+        <th>f64</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="cap">Base / scale</td>
+        <td class="fx">base-10, <strong>fixed</strong> 8 dp / 12 dp</td>
+        <td>base-10, <strong>floating</strong> 0–28 dp</td>
+        <td>base-10, <strong>floating</strong> 0–18 dp</td>
+        <td><strong>binary</strong> fixed-point (const-generic frac bits)</td>
+        <td>binary IEEE-754</td>
+      </tr>
+      <tr>
+        <td class="cap">Storage</td>
+        <td class="fx"><code>repr(transparent)</code> <code>i64</code> / 96 bits of <code>i128</code></td>
+        <td>96-bit mantissa + flags, 16 B (<code>repr(C)</code>)</td>
+        <td><code>i128</code> coefficient + <code>u8</code> scale</td>
+        <td><code>iN</code> with <code>Frac</code> bits</td>
+        <td>8 B float</td>
+      </tr>
+      <tr>
+        <td class="cap">Decimal-exact for money</td>
+        <td class="fx c"><span class="yes">✓</span></td>
+        <td class="c"><span class="yes">✓</span></td>
+        <td class="c"><span class="yes">✓</span></td>
+        <td class="c"><span class="no">✗</span> binary</td>
+        <td class="c"><span class="no">✗</span> binary</td>
+      </tr>
+      <tr>
+        <td class="cap">Canonical bits<sup>a</sup><br><span class="sub">value-equal ⇔ byte-equal</span></td>
+        <td class="fx c"><span class="yes">✓</span> 1.5 ≡ 1.50</td>
+        <td class="c"><span class="no">✗</span> 1.5 ≠ 1.50</td>
+        <td class="c"><span class="no">✗</span> scale varies</td>
+        <td class="c"><span class="yes">✓</span></td>
+        <td class="c"><span class="par">◐</span> −0.0/NaN</td>
+      </tr>
+      <tr>
+        <td class="cap">Range (magnitude)</td>
+        <td class="fx">±9.2e10 / ±3.96e16</td>
+        <td>~7.9e28 (28–29 digits)</td>
+        <td>~1.7e20 at 18 dp (i128 coeff)</td>
+        <td>per type</td>
+        <td>±1.8e308 (inexact)</td>
+      </tr>
+      <tr>
+        <td class="cap">Total / Ord / Hash / Eq</td>
+        <td class="fx c"><span class="yes">✓</span> total</td>
+        <td class="c"><span class="yes">✓</span> total</td>
+        <td class="c"><span class="yes">✓</span> total</td>
+        <td class="c"><span class="yes">✓</span> total</td>
+        <td class="c"><span class="no">✗</span> NaN breaks it</td>
+      </tr>
+      <tr>
+        <td class="cap">Mul/div rounding policy<sup>b</sup></td>
+        <td class="fx"><strong>truncate toward zero</strong></td>
+        <td>round half-even (banker's)</td>
+        <td>exact, or explicit rounded ops</td>
+        <td>truncate / checked / wrap</td>
+        <td>round half-even (binary)</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="legend">
+    <sup>a</sup> fixdec normalises so equal <em>values</em> have identical bytes — safe to use as a hash/dedup/wire key. rust_decimal &amp; fpdec keep trailing-zero scale, so <code>1.5</code> and <code>1.50</code> are byte-distinct even though they compare equal.<br>
+    <sup>b</sup> <strong>This is the single most important semantic difference and corrects an earlier draft.</strong> fixdec's <code>checked_mul</code>/<code>checked_div</code> use integer division (<code>(a·b)/SCALE</code>, <code>(a·SCALE)/b</code>) — they <strong>truncate toward zero</strong>. Banker's rounding applies <em>only</em> to explicit rounding ops (<code>round</code>, <code>round_dp</code>, <code>with_scale_lossy</code>, <code>from_f64</code>, <code>to_*_round</code>, <code>{:.N}</code>). rust_decimal, by contrast, <em>rounds half-even inside multiply</em> — so the two libraries can disagree by 1 ulp on the same product. See §3.
+  </p>
+
+  <h2>2. Capability matrix</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Capability</th>
+        <th class="fx c">D64 / D96</th>
+        <th class="c">rust_decimal</th>
+        <th class="c">fpdec</th>
+        <th class="c">fixed</th>
+        <th class="c">f64</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="cap">checked / saturating / wrapping</td>
+        <td class="fx c"><span class="yes">✓</span> all 4</td><td class="c"><span class="yes">✓</span> chk+sat</td><td class="c"><span class="yes">✓</span> checked</td><td class="c"><span class="yes">✓</span> all 4</td><td class="c"><span class="no">✗</span> silent ∞</td></tr>
+      <tr><td class="cap">Selectable rounding modes</td>
+        <td class="fx c"><span class="no">✗</span> banker's only</td><td class="c"><span class="yes">✓</span> RoundingStrategy</td><td class="c"><span class="yes">✓</span> RoundingMode</td><td class="c"><span class="par">◐</span> methods</td><td class="c"><span class="par">◐</span> methods</td></tr>
+      <tr><td class="cap">Integer power <code>powi</code></td>
+        <td class="fx c"><span class="yes">✓</span></td><td class="c"><span class="yes">✓</span> powi/powd</td><td class="c"><span class="no">✗</span></td><td class="c"><span class="no">✗</span></td><td class="c"><span class="yes">✓</span></td></tr>
+      <tr><td class="cap"><code>mul_add</code> (FMA)<sup>c</sup></td>
+        <td class="fx c"><span class="par">◐</span> no precision gain</td><td class="c"><span class="no">✗</span></td><td class="c"><span class="no">✗</span></td><td class="c"><span class="yes">✓</span></td><td class="c"><span class="yes">✓</span> true fused</td></tr>
+      <tr><td class="cap">sqrt / ln / exp / trig</td>
+        <td class="fx c"><span class="no">✗</span> by design<sup>d</sup></td><td class="c"><span class="yes">✓</span> <code>maths</code></td><td class="c"><span class="no">✗</span></td><td class="c"><span class="par">◐</span> <code>fixed-sqrt</code></td><td class="c"><span class="yes">✓</span></td></tr>
+      <tr><td class="cap">Literal macro (<code>dec!</code>)</td>
+        <td class="fx c"><span class="no">✗</span></td><td class="c"><span class="yes">✓</span> <code>dec!</code></td><td class="c"><span class="yes">✓</span> <code>Dec!</code></td><td class="c"><span class="par">◐</span> typenum</td><td class="c"><span class="par">◐</span> native lit</td></tr>
+      <tr><td class="cap">num-traits</td>
+        <td class="fx c"><span class="yes">✓</span></td><td class="c"><span class="yes">✓</span></td><td class="c"><span class="yes">✓</span></td><td class="c"><span class="yes">✓</span></td><td class="c"><span class="yes">✓</span></td></tr>
+      <tr><td class="cap">serde</td>
+        <td class="fx c"><span class="yes">✓</span> exact str<sup>e</sup></td><td class="c"><span class="yes">✓</span> 6 modes</td><td class="c"><span class="par">◐</span> str</td><td class="c"><span class="par">◐</span> feature</td><td class="c"><span class="yes">✓</span> lossy</td></tr>
+      <tr><td class="cap">Zero-copy / byte interop<sup>f</sup></td>
+        <td class="fx c"><span class="yes">✓</span> bytemuck+zerocopy+LE</td><td class="c"><span class="yes">✓</span> bytemuck+rkyv+borsh</td><td class="c"><span class="par">◐</span> rkyv (packed)</td><td class="c"><span class="par">◐</span> bytemuck</td><td class="c"><span class="par">◐</span> <code>to_le_bytes</code></td></tr>
+      <tr><td class="cap">Python interop (<code>decimal.Decimal</code>)<sup>g</sup></td>
+        <td class="fx c"><span class="yes">✓</span> in-crate pyo3</td><td class="c"><span class="yes">✓</span> via PyO3</td><td class="c"><span class="no">✗</span></td><td class="c"><span class="no">✗</span></td><td class="c"><span class="par">◐</span> → float</td></tr>
+      <tr><td class="cap">SQL / ORM drivers</td>
+        <td class="fx c"><span class="no">✗</span></td><td class="c"><span class="yes">✓</span> pg / diesel</td><td class="c"><span class="no">✗</span></td><td class="c"><span class="no">✗</span></td><td class="c"><span class="par">◐</span> driver-native</td></tr>
+      <tr><td class="cap"><code>no_std</code></td>
+        <td class="fx c"><span class="yes">✓</span> zero-dep core</td><td class="c"><span class="yes">✓</span></td><td class="c"><span class="yes">✓</span></td><td class="c"><span class="yes">✓</span></td><td class="c"><span class="par">◐</span> libm for math</td></tr>
+      <tr><td class="cap">rust_decimal bridge</td>
+        <td class="fx c"><span class="yes">✓</span> to/from</td><td class="c">—</td><td class="c"><span class="no">✗</span></td><td class="c"><span class="no">✗</span></td><td class="c"><span class="no">✗</span></td></tr>
+      <tr><td class="cap">Domain helpers (bps, ticks, %)</td>
+        <td class="fx c"><span class="yes">✓</span></td><td class="c"><span class="no">✗</span></td><td class="c"><span class="no">✗</span></td><td class="c"><span class="no">✗</span></td><td class="c"><span class="no">✗</span></td></tr>
+    </tbody>
+  </table>
+  <p class="legend">
+    <sup>c</sup> In <em>fixed-point</em>, <code>mul_add(a,b,c)</code> = <code>trunc(a·b/SCALE) + c</code>: the product is reduced once (one truncation) and the add of <code>c</code> is <em>exact</em>. So fixdec's <code>mul_add</code> is identical in result to <code>mul</code> then <code>add</code> — it is an ergonomic/overflow convenience, <strong>not</strong> a precision win like float FMA (which rounds the whole <code>a·b+c</code> once). rust_decimal and fpdec expose no <code>mul_add</code> at all.<br>
+    <sup>d</sup> Transcendentals were deliberately removed: a correct <code>sqrt</code> on D96 needs 256-bit intermediates (the exact multiply only fits <code>i128</code> <em>because</em> the mantissa is capped at 96 bits), and on a fixed 8/12-dp scale the result is precision-limited regardless. Point math-heavy users at rust_decimal/f64 through the bridges.<br>
+    <sup>e</sup> Serialises as an exact decimal string; deserialises from a string or an <em>integer</em> JSON number, but <strong>rejects bare JSON floats</strong> (which would silently lose precision). rust_decimal instead offers six feature-gated modes (<code>serde-str</code>, <code>serde-float</code>, <code>serde-arbitrary-precision</code>, and their <code>serde-with-*</code> variants).<br>
+    <sup>f</sup> See §4 for the rkyv-vs-bytemuck/zerocopy distinction the matrix compresses. Net: fixdec is the only one with <code>zerocopy</code>-crate support, explicit portable little-endian byte I/O, and <em>canonical</em> bytes; rust_decimal has the wider <em>framework</em> set (bytemuck + rkyv + borsh) but non-canonical bytes.<br>
+    <sup>g</sup> <strong>Corrects an earlier draft that marked rust_decimal ✗.</strong> rust_decimal gets first-class <code>Decimal ↔ decimal.Decimal</code> conversion from <strong>PyO3 upstream</strong> (PyO3's own <code>rust_decimal</code> feature) — more maintained than a hand-rolled bridge. fixdec implements its conversions in-crate behind its <code>pyo3</code> feature.
+  </p>
+
+  <h2>3. Correctness notes that matter more than the checkmarks</h2>
+
+  <h3>3.1 Truncation, not banker's rounding, in <code>×</code> and <code>÷</code></h3>
+  <p>
+    fixdec multiply/divide <strong>truncate the sub-scale remainder toward zero</strong>. This is fast, deterministic, and consistent — but it is a real semantic difference from rust_decimal, which rounds half-even inside multiply. For example a product whose exact value is <code>…·xated.5</code> at the last representable digit lands one ulp lower in fixdec than in rust_decimal. Neither is "wrong", but a system mixing the two must pick one as the source of truth. <strong>This behaviour is currently undocumented in the public API and should be.</strong>
+  </p>
+
+  <h3>3.2 <code>percent_of</code> / <code>add_percent</code> double-truncate</h3>
+  <p>
+    <code>percent_of</code> is <code>checked_mul(pct).checked_div(HUNDRED)</code> — i.e. <code>trunc(trunc(self·pct/SCALE)/100)</code>: <strong>two</strong> independent truncations. A fused form <code>trunc(self·pct/(SCALE·100))</code> truncates once and can differ by 1 ulp. For D64 the fused product fits <code>i128</code> trivially; for D96 it can route through the existing 192-bit divide. Small, but it is the kind of ≤1-ulp inconsistency an "exact, auditable" library should not have. (An earlier draft mislabelled this "two banker's roundings" — it is two <em>truncations</em>.)
+  </p>
+
+  <h3>3.3 Canonical bytes are a genuine, underexploited edge</h3>
+  <p>
+    Because fixdec normalises, <code>D64</code>/<code>D96</code> are the only types here where byte-equality implies value-equality. That makes them ideal map keys, dedup keys, and wire identifiers — rust_decimal's <code>1.5</code> vs <code>1.50</code> hash differently. Worth stating explicitly in the docs as a feature, not an accident.
+  </p>
+
+  <h2>4. Zero-copy: rkyv vs bytemuck / zerocopy</h2>
+  <p>
+    These solve <em>different</em> problems and the matrix's single "zero-copy" cell hides that. The short version:
+  </p>
+  <table>
+    <thead>
+      <tr><th>Aspect</th><th>bytemuck / zerocopy</th><th>rkyv</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="cap">What it is</td>
+        <td>Trait-based <strong>transmute</strong>: reinterpret a value's existing memory as <code>&amp;[u8]</code> and back.</td>
+        <td>A full <strong>zero-copy (de)serialization framework</strong> ("archival").</td></tr>
+      <tr><td class="cap">Works on</td>
+        <td>Only fixed-layout <strong>plain-old-data</strong> (no padding, no pointers, fixed <code>repr</code>). A <code>repr(transparent)</code> <code>i64</code>/<code>i128</code> like D64/D96 is the ideal case.</td>
+        <td><strong>Arbitrary graphs</strong>: <code>Vec</code>, <code>String</code>, <code>HashMap</code>, <code>Box</code>, nested structs/enums — via a separate <code>Archived&lt;T&gt;</code> layout with relative offsets.</td></tr>
+      <tr><td class="cap">The bytes are…</td>
+        <td>…literally the in-memory value. No transformation, no allocation, no schema.</td>
+        <td>…a distinct archived representation written by a serializer; read in place with no decode pass.</td></tr>
+      <tr><td class="cap">Endianness</td>
+        <td>Native-endian (so fixdec adds explicit <code>write_le_bytes</code>/<code>read_le_bytes</code> for portable wire I/O).</td>
+        <td>Configurable; archived primitives can be endian-explicit.</td></tr>
+      <tr><td class="cap">Validation of untrusted bytes</td>
+        <td><code>zerocopy</code> separates "any bit pattern valid" (<code>FromBytes</code>) from "safe to view as bytes" (<code>IntoBytes</code>); bytemuck has <code>CheckedBitPattern</code>.</td>
+        <td><code>bytecheck</code> / <code>rkyv-safe</code> validates a buffer before access.</td></tr>
+      <tr><td class="cap">Cost / weight</td>
+        <td>Effectively free; a derive and a cast.</td>
+        <td>Heavier: derives, archived types, optional validation. Overkill for a lone scalar.</td></tr>
+      <tr><td class="cap">fixdec relevance</td>
+        <td><strong>The right tool today.</strong> D64/D96 <em>are</em> their bytes; bytemuck + zerocopy + explicit LE cover it fully.</td>
+        <td>Only relevant as <strong>interop</strong>: letting a D64/D96 be a <em>field</em> inside someone else's rkyv-archived message.</td></tr>
+    </tbody>
+  </table>
+  <div class="callout">
+    <strong>Why one important nuance favours <code>zerocopy</code> over <code>bytemuck</code> for D96.</strong> Not every 128-bit pattern is a valid D96 (the value must stay within ±(2<sup>95</sup>−1)). <code>zerocopy</code> lets D96 derive <code>IntoBytes</code> (always safe) <em>without</em> <code>FromBytes</code> (which would let any 16 bytes become a D96 and bypass the range invariant). bytemuck's <code>Pod</code> is all-or-nothing, so D96 uses <code>NoUninit</code> (write side) rather than <code>Pod</code>. That asymmetry is the whole reason both crates are wired up rather than just one.
+  </div>
+  <p>
+    <strong>Takeaway for the roadmap:</strong> rust_decimal and fpdec both ship an <code>rkyv</code> feature precisely so they can live inside archived structures. fixdec does not — so a trading system that memory-maps rkyv message logs cannot embed a D64/D96 without a manual wrapper. That makes an optional <code>rkyv</code> (and arguably <code>borsh</code>) interop feature a legitimate, well-scoped gap (P2 below), distinct from the transmute support fixdec already has.
+  </p>
+
+  <h2>5. Missing features (prioritized)</h2>
+  <table>
+    <thead>
+      <tr><th>Pri</th><th>Feature</th><th>Why it matters</th><th>Notes / tractability</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="c"><span class="tag p0">P0</span></td>
+        <td class="cap">Selectable rounding modes</td>
+        <td>Top blocker for regulated finance: tax = HALF_UP, IFRS = HALF_EVEN, venue tick rules differ. Both decimal peers have it; fixdec is banker's-only.</td>
+        <td>Tractable — rounding is centralized in <code>internal.rs</code>. Add a mode param + <code>round_dp_with</code>/<code>checked_div_with</code>; keep banker's the default. <strong>Avoid fpdec's thread-local mutable default</strong> — it kills determinism, fixdec's core selling point.</td>
+      </tr>
+      <tr>
+        <td class="c"><span class="tag p0">P0</span></td>
+        <td class="cap"><code>d64!</code> / <code>d96!</code> literal macro</td>
+        <td>Both peers ship one. Today constants need <code>new(i,f)</code> or runtime <code>from_str</code>.</td>
+        <td><code>macro_rules!</code> over the existing <code>const fn new</code>; reject &gt;8/&gt;12 dp at compile time.</td>
+      </tr>
+      <tr>
+        <td class="c"><span class="tag p0">P0</span></td>
+        <td class="cap"><code>quantize(tick)</code> + <code>abs_diff</code></td>
+        <td>Tick-snapping ($0.05 increments) and spread/slippage are bread-and-butter for trading. fpdec has <code>Quantize</code>; <code>fixed</code> has <code>dist</code>.</td>
+        <td><code>quantize</code> must round the quotient in <strong>one fused step</strong> — do not reuse the double-truncating <code>percent_of</code> pattern (§3.2).</td>
+      </tr>
+      <tr>
+        <td class="c"><span class="tag p1">P1</span></td>
+        <td class="cap"><code>round_dp</code> with negative places</td>
+        <td>Round to nearest 10 / 100 for notional and lot sizing.</td>
+        <td>Natural extension of the rounding rework in P0.</td>
+      </tr>
+      <tr>
+        <td class="c"><span class="tag p1">P1</span></td>
+        <td class="cap"><code>MIN_POSITIVE</code> / <code>STEP</code> const</td>
+        <td>The smallest representable increment (<code>from_raw(1)</code>) is useful for tolerances and tick math.</td>
+        <td>Name it <code>STEP</code>/<code>MIN_POSITIVE</code>, <strong>not</strong> <code>EPSILON</code> — misleading on a fixed-scale type.</td>
+      </tr>
+      <tr>
+        <td class="c"><span class="tag p2">P2</span></td>
+        <td class="cap"><code>rkyv</code> (and <code>borsh</code>) interop feature</td>
+        <td>Both peers have <code>rkyv</code>; without it a D64/D96 can't be a field in an archived message log (§4).</td>
+        <td>Optional, additive feature; no API change to existing transmute support.</td>
+      </tr>
+      <tr>
+        <td class="c"><span class="tag p2">P2</span></td>
+        <td class="cap"><code>rem_euclid</code> / <code>div_euclid</code> / <code>copysign</code></td>
+        <td>Parity with the numeric-tower conventions users expect.</td>
+        <td>Thin wrappers over existing ops.</td>
+      </tr>
+      <tr>
+        <td class="c"><span class="tag p3">P3</span></td>
+        <td class="cap">Transcendentals (sqrt/ln/exp/powf/trig)</td>
+        <td>rust_decimal/f64 cover this; demand on a fixed 8/12-dp money type is low.</td>
+        <td><strong>Do not chase.</strong> Needs 256-bit intermediates and is precision-limited at fixed scale (footnote d). Bridge to rust_decimal/f64 instead.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>6. Improvements to existing features</h2>
+  <ol>
+    <li><strong>Document the truncating mul/div policy (§3.1)</strong> — the biggest <em>accuracy</em> finding. At minimum document it; surfacing it next to rust_decimal's round-half-even multiply prevents silent cross-system disagreement.</li>
+    <li><strong>Fuse <code>percent_of</code>/<code>add_percent</code> to a single truncation (§3.2)</strong> — removes a ≤1-ulp inconsistency; D64 fits <code>i128</code>, D96 routes through existing 192-bit helpers.</li>
+    <li><strong>De-duplicate the D64/D96 arithmetic core</strong> — ~10.5k near-identical lines; <code>internal.rs</code> already calls the duplication "the root cause of several bugs". Macro-generate the bug-prone twins (mul/div/rescale/round) via a <code>define_decimal!</code>, keep type-specific surface (constants, 96-bit clamp, byte I/O) hand-written, and add a parity test suite running identical property tests against both types.</li>
+    <li><strong>Parameterize the internal rounding helpers now</strong> (even before exposing P0 modes) so <code>ceil</code>/<code>floor</code>/<code>trunc</code>/<code>round</code> share one path and the public modes API is a thin wrapper; keep an <code>#[inline(always)]</code> banker's fast path so existing sites pay nothing.</li>
+    <li><strong>Promote canonical bytes (§3.3) as a documented feature</strong> — it's a real edge over both decimal peers and is currently invisible.</li>
+    <li><strong>Keep the fixed-scale design; document the escape hatch</strong> — const-generic precision would explode the byte/serde/pyo3 surface. Instead document: use D96 vs rust_decimal when you need &gt;12 dp, &gt;±3.96e16, or transcendental math — the <code>to_d96</code>/<code>to_rust_decimal</code> bridges already make this smooth.</li>
+  </ol>
+
+  <h2>7. Verdict — when to choose which</h2>
+  <p><strong>Where fixdec already wins, and should stay in its lane:</strong></p>
+  <ul>
+    <li><strong>Determinism &amp; canonical identity</strong> — no NaN/∞/−0.0, total <code>Ord</code>/<code>Eq</code>/<code>Hash</code>, byte-equal ⇔ value-equal. Beats rust_decimal and fpdec.</li>
+    <li><strong>Latency &amp; size</strong> — <code>repr(transparent)</code> <code>i64</code> is the fastest exact-decimal option in the benchmark and the smallest footprint. Beats everyone but raw <code>f64</code>/<code>fixed</code> (which aren't decimal-exact).</li>
+    <li><strong>Safe-by-default serde</strong> — exact strings, refuses ambiguous bare floats.</li>
+    <li><strong>Domain fit</strong> — basis points, bond ticks, percentages, pyo3 ↔ <code>decimal.Decimal</code>, and a rust_decimal bridge, all in one crate.</li>
+  </ul>
+  <p><strong>Where the peers still win:</strong> rust_decimal for ecosystem breadth (SQL drivers, 6 serde modes, <code>maths</code>, rkyv/borsh, wider range) and selectable rounding; fpdec for flexible scale + rounding modes; <code>fixed</code>/<code>f64</code> for raw speed and transcendental math where binary inexactness is acceptable.</p>
+  <p><strong>Invest, in order:</strong> (1) selectable rounding modes, (2) a <code>d64!</code>/<code>d96!</code> macro, (3) document/fix the truncating mul-div + <code>percent_of</code> double-truncation, (4) de-duplicate the D64/D96 core, (5) optional <code>rkyv</code> interop. Skip the transcendental suite.</p>
+
+  <footer>
+    Verified 2026-06-20 against fixdec source and peer crate docs (rust_decimal 1.42, fpdec, fixed). PyO3↔rust_decimal confirmed as a first-party PyO3 feature. rust_decimal feature set confirmed to include <code>bytemuck</code>, <code>rkyv</code>, <code>rkyv-safe</code>, <code>borsh</code>, <code>maths</code>, <code>macros</code>. Corrections vs the prior draft: rust_decimal Python interop ✓ (not ✗); zero-copy breadth re-balanced; "banker's rounding" in ×/÷ corrected to "truncation"; <code>percent_of</code> is double-truncation; <code>mul_add</code> offers no fixed-point precision gain.
+  </footer>
+</main>
+</body>
+</html>
