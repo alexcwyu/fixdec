@@ -30,6 +30,17 @@ jobs:
       - name: Run tests
         run: cargo test --verbose ${{ matrix.flags }}
 
+  check:
+    runs-on: ubuntu-latest
+    name: check (no_std + feature matrix)
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo check --no-default-features
+      - run: cargo check --no-default-features --features full
+      - run: cargo check --no-default-features --features rkyv
+      - run: cargo check --all-features
+      - run: cargo check --benches --all-features
+
   differential:
     runs-on: ubuntu-latest
     name: differential (release, 1M iters)
@@ -39,11 +50,13 @@ jobs:
         env:
           DIFF_ITERS: "1000000"
         run: cargo test --release --all-features --test differential
+      - name: sqrt differential vs rust_decimal + f64 + integer oracle
+        run: cargo run --release --example sqrt_diff -- 1000000
 
   clippy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: rustup component add clippy
-      - name: Clippy (all features, tests + examples)
-        run: cargo clippy --all-features --tests --examples
+      - name: Clippy (all targets, warnings are errors)
+        run: cargo clippy --all-features --all-targets -- -D warnings

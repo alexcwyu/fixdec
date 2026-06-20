@@ -600,6 +600,17 @@ assert_eq!(price.to_string(), "99.5");
 
 `fixdec` is built for **speed** when you know your precision requirements. `rust_decimal` is built for **flexibility** when you need configurable precision.
 
+## Semantic Contract
+
+These rules hold for both `D64` and `D96` and are the stable contract the API is tested against:
+
+- **Basic arithmetic truncates toward zero.** `+ - * /`, `checked_*`, `wrapping_*`, `saturating_*`, `overflowing_*`, the `Rem`/`div_rem` family, and the integer helpers (`mul_i64`/`add_i64`/`div_i64`, `_i128` on D96) all truncate any sub-ULP remainder toward zero. No hidden rounding.
+- **`sqrt` floors.** `x.sqrt()` returns the largest representable `y` with `y*y <= x`; equivalently `y*y <= x < (y + ULP)*(y + ULP)`. Perfect squares are exact; negative inputs return `None` (`try_sqrt` → `Err(NegativeValue)`).
+- **Rounding is explicit and opt-in.** The only APIs that round are the ones whose name says so or that format/parse: `round`, `round_dp`, `round_dp_with_strategy`, `checked_div_rounded`, `quantize` / `checked_quantize` / `checked_floor_to_tick` / `checked_ceil_to_tick`, `Display` precision (`{:.N}`), and lossy parsing. The default tie-break is banker's rounding (half-to-even); `RoundingStrategy` selects others.
+- **Parsing: exact rejects, lossy rounds.** `from_str` / `from_str_exact` return `Err(PrecisionLoss)` if the input has more fractional digits than the type holds; `from_str_lossy` rounds the excess (banker's), including scientific notation.
+- **Float conversions are convenience, not exact decimal interop.** `from_f64` / `to_f64` cross the binary/decimal boundary and may round; for exact decimal interchange use strings or the `rust-decimal` feature. (Accordingly, serde and the float path reject bare JSON floats rather than silently rounding them.)
+- **D96 preserves its 96-bit invariant on ingestion.** Every value stays in `[-2^95, 2^95 - 1]`. The checked byte readers (`try_read_*_bytes`) and the rkyv validated-access path are the safe entry points for untrusted bytes; the `zerocopy`/`bytemuck` surface is intentionally write-only for `D96` (D64 has no sub-range invariant, so it is fully `Pod`).
+
 ## Safety and Correctness
 
 - **Overflow behavior**: All arithmetic operations have `checked`, `saturating`, and `wrapping` variants
