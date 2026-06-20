@@ -29,9 +29,64 @@ use crate::{D64, DecimalError};
     feature = "zerocopy",
     derive(zerocopy::IntoBytes, zerocopy::Immutable, zerocopy::KnownLayout)
 )]
+// rkyv 0.8 zero-copy archival. Mirrors the zerocopy/bytemuck caution: unlike
+// `D64`, D96 carries a 96-bit range invariant, so `#[rkyv(bytecheck(verify))]`
+// wires a `Verify` (below) into the generated `ArchivedD96`. The safe access
+// path (`rkyv::access` / `rkyv::from_bytes`) re-validates untrusted bytes and
+// rejects out-of-range raw values; `access_unchecked` is the documented unsafe
+// escape hatch (analogous to a raw bytemuck cast / `read_*_bytes`).
+#[cfg_attr(
+    feature = "rkyv",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize),
+    rkyv(derive(Debug), bytecheck(verify))
+)]
 #[repr(transparent)]
 pub struct D96 {
     value: i128,
+}
+
+/// Error returned when an archived [`D96`] holds a raw value outside the valid
+/// 96-bit range. Surfaced by rkyv's safe access path (`rkyv::access` /
+/// `rkyv::from_bytes`) when validating untrusted archives.
+#[cfg(feature = "rkyv")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct D96RangeError {
+    /// The out-of-range raw value found in the archived bytes.
+    pub value: i128,
+}
+
+#[cfg(feature = "rkyv")]
+impl core::fmt::Display for D96RangeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "archived D96 raw value {} is outside the valid 96-bit range",
+            self.value
+        )
+    }
+}
+
+#[cfg(feature = "rkyv")]
+impl core::error::Error for D96RangeError {}
+
+// Enforce D96's 96-bit range on the SAFE access path. Every 16-byte pattern is a
+// structurally valid `i128`, so without this the auto bytecheck would hand back
+// out-of-range D96 values — exactly the hole that withholding zerocopy
+// `FromBytes` / bytemuck `Pod` avoids. Reuses `from_raw_checked` as the single
+// source of truth for the bound (note the MIN/MAX magnitude asymmetry).
+#[cfg(feature = "rkyv")]
+unsafe impl<C> rkyv::bytecheck::Verify<C> for ArchivedD96
+where
+    C: rkyv::rancor::Fallible + ?Sized,
+    C::Error: rkyv::rancor::Source,
+{
+    fn verify(&self, _context: &mut C) -> Result<(), C::Error> {
+        let raw: i128 = self.value.to_native();
+        if D96::from_raw_checked(raw).is_none() {
+            rkyv::rancor::fail!(D96RangeError { value: raw });
+        }
+        Ok(())
+    }
 }
 
 // ============================================================================

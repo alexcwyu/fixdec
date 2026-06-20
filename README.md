@@ -138,6 +138,7 @@ fixdec = { version = "0.1", features = ["serde"] }
 | `serde` | Enable Serde serialization (requires `alloc`) |
 | `bytemuck` | Zero-copy byte casts: `Pod` for `D64`, write-only `NoUninit` for `D96` (`no_std`) |
 | `zerocopy` | Byte-view derives: full `FromBytes`/`IntoBytes` for `D64`, write-only `IntoBytes` for `D96` (`no_std`) |
+| `rkyv` | [rkyv](https://crates.io/crates/rkyv) 0.8 zero-copy archival; `D96` archives are range-validated by `bytecheck` (`no_std`, requires `alloc`) |
 | `num-traits` | `Zero`/`One`/`Bounded`/`Signed`/`Num`/`Checked*`/`Saturating`/`From`/`ToPrimitive`/`Inv` impls (`no_std`) |
 | `rust-decimal` | Conversions to/from [`rust_decimal`](https://crates.io/crates/rust_decimal)'s `Decimal` (`no_std`, requires `alloc`) |
 | `pyo3` | [PyO3](https://crates.io/crates/pyo3) interop: D64/D96 ↔ Python `decimal.Decimal` (`std`-only; not in `full`) |
@@ -217,6 +218,29 @@ let back  = <[D64]>::ref_from_bytes(bytes).unwrap();
 > `D96::try_read_le_bytes` / `try_read_be_bytes` / `try_read_ne_bytes` (which
 > return `None` on an out-of-range pattern) or `from_*_bytes` (which panics on
 > one).
+
+### Zero-copy archival (rkyv)
+
+With the `rkyv` feature, `D64`/`D96` derive [rkyv](https://docs.rs/rkyv) 0.8
+`Archive`/`Serialize`/`Deserialize`, so they can be embedded in archived message
+graphs and read back in place with no decode pass. Archived integers are portable
+little-endian (via `rend`), and the crate stays `no_std` (rkyv is pulled in with
+`default-features = false` plus `alloc` + `bytecheck`).
+
+```rust
+// with features = ["rkyv"]
+use rkyv::rancor::Error;
+let bytes = rkyv::to_bytes::<Error>(&D96::from_str("123.456").unwrap()).unwrap();
+let back: D96 = rkyv::from_bytes::<D96, Error>(&bytes).unwrap();
+```
+
+> **`D96` archives are range-validated.** Mirroring the `bytemuck`/`zerocopy`
+> caution above, `D96` wires a `bytecheck::Verify` into its archived type via
+> `#[rkyv(bytecheck(verify))]`: the safe access path (`rkyv::access` /
+> `rkyv::from_bytes`) rejects any archived raw value outside the 96-bit range,
+> so an untrusted archive cannot smuggle an out-of-range value into arithmetic.
+> `rkyv::access_unchecked` is the documented unsafe escape hatch. `D64` needs no
+> such guard — every bit pattern is a valid `D64`.
 
 ### Generic numerics (num-traits)
 

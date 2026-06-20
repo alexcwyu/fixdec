@@ -29,6 +29,11 @@ rust_decimal = { version = "1.39.0", optional = true, default-features = false }
 # libpython and needs a Python toolchain, so this feature is std-only and is
 # deliberately NOT part of `full`.
 pyo3 = { version = "0.26", optional = true, default-features = false }
+# Optional rkyv 0.8 zero-copy archival. default-features = false keeps it no_std;
+# we re-add `alloc` (to_bytes/access/from_bytes allocate an AlignedVec/arena) and
+# `bytecheck` (the safe, validated access path that enforces D96's 96-bit range).
+# Archived integers are portable little-endian via rkyv's `rend`.
+rkyv = { version = "0.8", optional = true, default-features = false, features = ["alloc", "bytecheck"] }
 # default-features = false drops thiserror's `std` feature so the crate stays
 # truly no_std (thiserror exposes the `Error` impls via core on 2.x).
 thiserror = { version = "2.0.17", default-features = false }
@@ -43,7 +48,9 @@ zerocopy = ["dep:zerocopy"]
 num-traits = ["dep:num-traits"]
 rust-decimal = ["dep:rust_decimal", "alloc"]
 pyo3 = ["dep:pyo3", "std"]
-full = ["std", "serde", "bytemuck", "zerocopy", "num-traits", "rust-decimal"]
+# rkyv needs alloc for to_bytes/access/from_bytes; bytecheck validation is bundled.
+rkyv = ["dep:rkyv", "alloc"]
+full = ["std", "serde", "bytemuck", "zerocopy", "num-traits", "rust-decimal", "rkyv"]
 
 [dev-dependencies]
 criterion = { version = "0.7.0", features = ["html_reports"] }
@@ -55,6 +62,7 @@ bincode = "1.3"
 bytemuck = "1"
 zerocopy = { version = "0.8", features = ["derive"] }
 num-traits = { version = "0.2", default-features = false }
+rkyv = { version = "0.8", features = ["alloc", "bytecheck"] }
 # Competitor decimal/fixed-point crates — used only by examples/bench_vs_libs.rs
 fixed = { version = "1.31", features = ["std"] }
 fpdec = "0.14.1"
