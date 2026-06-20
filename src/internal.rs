@@ -201,32 +201,14 @@ pub(crate) const fn apply_rounding_unsigned(
 
 /// Integer floor square root of a `u128`: the largest `r` with `r*r <= n`.
 ///
-/// Uses the classic bit-by-bit ("digit-by-digit") algorithm, which is just
-/// shifts, adds, subtracts and compares — never a multiply — so it cannot
-/// overflow even when `r*r` would, and it is `const`. Backs `D64::sqrt` (whose
-/// radicand `raw*1e8` always fits a u128) and the small-value fast path of
-/// `D96::sqrt`.
+/// Delegates to the standard library's [`u128::isqrt`] (stable, `const`, and
+/// `no_std`), which is ~4x faster than a hand-rolled bit-by-bit loop. Backs
+/// `D64::sqrt` (whose radicand `raw*1e8` always fits a u128) and the small-value
+/// fast path of `D96::sqrt`. Kept as a named helper so the contract has one
+/// documented home and a single unit-test target.
+#[inline(always)]
 pub(crate) const fn isqrt_u128(n: u128) -> u128 {
-    if n < 2 {
-        return n;
-    }
-    // Largest power of four `<= n`: take the highest set bit, round its index
-    // down to even. `n >= 2` so `leading_zeros() <= 126`.
-    let shift = (127 - n.leading_zeros()) & !1u32;
-    let mut bit: u128 = 1u128 << shift;
-    let mut rem = n;
-    let mut result: u128 = 0;
-    while bit != 0 {
-        let t = result + bit;
-        if rem >= t {
-            rem -= t;
-            result = (result >> 1) + bit;
-        } else {
-            result >>= 1;
-        }
-        bit >>= 2;
-    }
-    result
+    n.isqrt()
 }
 
 /// Euclid's GCD on unsigned 128-bit values. `gcd(x, 0) == x`, `gcd(0, y) == y`.
@@ -281,10 +263,24 @@ mod tests {
             assert!(r * r <= n, "lower bound at {n}");
             assert!(n < (r + 1) * (r + 1), "upper bound at {n}");
         }
-        // Perfect squares and one-below across a wide range.
-        for k in [1u128, 2, 3, 1_000, 1u128 << 32, 1u128 << 48, (1u128 << 63) - 1] {
-            assert_eq!(isqrt_u128(k * k), k, "sqrt(k^2) == k for k={k}");
-            assert_eq!(isqrt_u128(k * k - 1), k - 1, "sqrt(k^2 - 1) == k-1 for k={k}");
+        // Perfect squares and one-below across a wide range, including k in the
+        // 2^32..2^64 band (radicands up to ~2^126, near u128::MAX). `checked_mul`
+        // keeps the oracle overflow-free where `k*k` would wrap.
+        for k in [
+            1u128,
+            2,
+            3,
+            1_000,
+            1u128 << 32,
+            1u128 << 48,
+            (1u128 << 63) - 1,
+            1u128 << 63,
+            (1u128 << 64) - 2,
+            (1u128 << 64) - 1,
+        ] {
+            let sq = k.checked_mul(k).expect("k^2 fits u128 for k <= 2^64-1");
+            assert_eq!(isqrt_u128(sq), k, "sqrt(k^2) == k for k={k}");
+            assert_eq!(isqrt_u128(sq - 1), k - 1, "sqrt(k^2 - 1) == k-1 for k={k}");
         }
         // Saturating top: floor(sqrt(u128::MAX)) = 2^64 - 1, and it really is a
         // lower bound (top^2 doesn't overflow, so the product is the true value).

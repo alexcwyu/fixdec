@@ -1055,41 +1055,55 @@ const fn mul_96x96_to_192(a: u128, b: u128) -> (u128, u64) {
 }
 
 /// Integer floor square root of a 192-bit value `R = low + high * 2^128`: the
-/// largest `y` with `y*y <= R`. `R < 2^192`, so the answer is `< 2^96`.
+/// largest `y` with `y*y <= R`.
 ///
 /// Backs `D96::sqrt`, whose radicand `raw * 1e12` reaches ~2^135 (overflowing
-/// the i128 the removed `sqrt` used). When `high == 0` the radicand fits a u128
-/// and we defer to [`isqrt_u128`]; otherwise we binary-search `y`, squaring each
-/// candidate with [`mul_96x96_to_192`] (valid since every `y < 2^96`) and
-/// comparing the 256-bit product against `R`.
+/// the i128 the removed `sqrt` used). Precondition: `high < 2^8` — always true
+/// for the D96 radicand (`raw < 2^95`, `1e12 < 2^40`, so `R < 2^135` and the
+/// root is `< 2^68`).
+///
+/// When `high == 0` the radicand fits a u128 and we defer to [`isqrt_u128`]
+/// (`u128::isqrt`). Otherwise, rather than a ~96-step bit search, we shift `R`
+/// right by the smallest even `2k` that brings it into a u128 (`2k >=
+/// bits(high)`), take that u128 root, and scale back by `2^k`. With `q = R >> 2k`
+/// and `a = isqrt(q)`, the estimate `y0 = a << k` is a guaranteed LOWER bound
+/// within `2^k` of the true root:
+///   * `y0^2 = a^2 * 4^k <= q * 4^k <= R`              => `y0 <= floor(sqrt R)`
+///   * `R < (q + 1) * 4^k <= (a + 1)^2 * 4^k = (y0 + 2^k)^2` => `root < y0 + 2^k`
+///
+/// so `floor(sqrt R)` lies in `[y0, y0 + 2^k)` and a short upward correction
+/// (`<= 2^k` steps, `<= 16` for the D96 radicand) lands exactly on it. Each step
+/// squares a candidate `< 2^68` with [`mul_96x96_to_192`] (operands `< 2^96`).
 #[inline]
 const fn isqrt_192(low: u128, high: u128) -> u128 {
     if high == 0 {
         return isqrt_u128(low);
     }
-    // Answer lies in [lo, hi); invariant: lo*lo <= R < hi*hi. The true root is
-    // < 2^96 because R < 2^192.
-    let mut lo: u128 = 0;
-    let mut hi: u128 = 1u128 << 96;
-    while hi - lo > 1 {
-        let mid = lo + (hi - lo) / 2; // 1 <= mid < 2^96
-        let (m_low, m_high) = mul_96x96_to_192(mid, mid); // mid^2 < 2^192
-        // (m_high, m_low) <= (high, low) as 256-bit unsigned?
-        let sq_le_r = {
-            let m_high = m_high as u128;
-            if m_high != high {
-                m_high < high
+    // Even shift bringing R into a u128: 2k >= number of bits in `high`.
+    let k = (128 - high.leading_zeros()).div_ceil(2);
+    let shift = 2 * k;
+    // q = R >> shift, exact: high*2^128 >> shift = high << (128 - shift), and the
+    // low limb adds low >> shift with no bit overlap (high < 2^8 => no overflow).
+    let q = (high << (128 - shift)) | (low >> shift);
+    let mut y = isqrt_u128(q) << k; // lower bound for floor(sqrt R), within 2^k
+    // Correct upward while (y + 1)^2 <= R. Terminates in < 2^k iterations.
+    loop {
+        let (sq_low, sq_high) = mul_96x96_to_192(y + 1, y + 1);
+        let next_le_r = {
+            let sq_high = sq_high as u128;
+            if sq_high != high {
+                sq_high < high
             } else {
-                m_low <= low
+                sq_low <= low
             }
         };
-        if sq_le_r {
-            lo = mid;
+        if next_le_r {
+            y += 1;
         } else {
-            hi = mid;
+            break;
         }
     }
-    lo
+    y
 }
 
 /// Optimized division of 192-bit by 10^12

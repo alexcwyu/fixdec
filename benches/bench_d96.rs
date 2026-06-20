@@ -128,8 +128,18 @@ fn bench_comparison(c: &mut Criterion) {
 }
 
 fn bench_sqrt(c: &mut Criterion) {
+    // Small value (< ~3.1e14): radicand fits u128 -> the isqrt_u128 fast path.
     c.bench_function("d96_sqrt", |b| {
         let d = D96::from_str("123.456789").unwrap();
+        b.iter(|| black_box(black_box(d).sqrt().unwrap()));
+    });
+}
+
+fn bench_sqrt_wide(c: &mut Criterion) {
+    // Large value (> ~3.4e14): radicand exceeds 2^128 -> the 192-bit
+    // binary-search path. This is the worst case for D96::sqrt.
+    c.bench_function("d96_sqrt_wide", |b| {
+        let d = D96::from_str("1234567890123456.789012").unwrap();
         b.iter(|| black_box(black_box(d).sqrt().unwrap()));
     });
 }
@@ -174,6 +184,7 @@ criterion_group!(
     bench_binary_write_read,
     bench_comparison,
     bench_sqrt,
+    bench_sqrt_wide,
     bench_powi,
     bench_percentage_of,
     bench_add_percent,
