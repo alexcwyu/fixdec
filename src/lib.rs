@@ -55,8 +55,43 @@ mod pyo3_conv;
 
 pub use d64::D64;
 pub use d96::D96;
+#[cfg(feature = "rkyv")]
+pub use d96::D96RangeError;
 
 use thiserror::Error;
+
+/// Rounding mode for the explicit `*_with_strategy` / `*_rounded` operations.
+///
+/// The default ([`MidpointNearestEven`](RoundingStrategy::MidpointNearestEven),
+/// banker's rounding) is what every *implicit* rounding op in the crate already
+/// uses (`round`, `round_dp`, `from_str_lossy`, `Display` `{:.N}`, `to_d64_round`,
+/// `with_scale_lossy`). The other strategies are opt-in via
+/// [`D64::round_dp_with_strategy`] / [`D96::round_dp_with_strategy`] and
+/// [`D64::checked_div_rounded`] / [`D96::checked_div_rounded`]. Variant names
+/// match `rust_decimal::RoundingStrategy`, with which the crate already interops.
+///
+/// The `*` and `/` operators and `checked_mul` / `checked_div` are **not**
+/// affected: they always TRUNCATE toward zero. Strategies apply only to the
+/// explicit rounding methods above.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RoundingStrategy {
+    /// Round to nearest; on a tie, to the nearest even digit (banker's rounding).
+    /// The crate-wide default.
+    #[default]
+    MidpointNearestEven,
+    /// Round to nearest; on a tie, away from zero (half-up by magnitude).
+    MidpointAwayFromZero,
+    /// Round to nearest; on a tie, toward zero (half-down by magnitude).
+    MidpointTowardZero,
+    /// Truncate toward zero (drop the rounded-off digits).
+    ToZero,
+    /// Round away from zero whenever any rounded-off digit is non-zero.
+    AwayFromZero,
+    /// Round toward negative infinity (floor).
+    ToNegativeInfinity,
+    /// Round toward positive infinity (ceil).
+    ToPositiveInfinity,
+}
 
 #[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DecimalError {

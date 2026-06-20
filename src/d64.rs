@@ -9,10 +9,10 @@ use core::str::FromStr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 use crate::internal::{
-    banker_round_i64, gcd_u128, pow10_i64, pow10_i128, pow10_u64, round_div_pow10_i128,
-    round_half_away_f64,
+    apply_rounding, banker_round_i64, gcd_u128, pow10_i64, pow10_i128, pow10_u64,
+    round_div_pow10_i128, round_half_away_f64,
 };
-use crate::{D96, DecimalError};
+use crate::{D96, DecimalError, RoundingStrategy};
 
 /// 64-bit fixed-point decimal with 8 decimal places of precision.
 ///
@@ -1283,6 +1283,72 @@ impl D64 {
 
         Self {
             value: Self::clamp_to_i64(rounded as i128 * rounding_factor as i128),
+        }
+    }
+
+    /// Rounds to `decimal_places` using an explicit [`RoundingStrategy`].
+    ///
+    /// [`round_dp`](Self::round_dp) is exactly this with
+    /// [`RoundingStrategy::MidpointNearestEven`] (banker's). Only the rounded-off
+    /// digits are affected; the `*` / `/` operators keep truncating toward zero
+    /// and are not influenced by `strategy`.
+    ///
+    /// # Panics
+    /// Panics if `decimal_places > DECIMALS`.
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn round_dp_with_strategy(
+        self,
+        decimal_places: u8,
+        strategy: RoundingStrategy,
+    ) -> Self {
+        assert!(
+            decimal_places <= Self::DECIMALS,
+            "decimal_places must be <= DECIMALS"
+        );
+        if decimal_places == Self::DECIMALS {
+            return self;
+        }
+        let scale_reduction = Self::DECIMALS - decimal_places;
+        let rounding_factor = pow10_i64(scale_reduction);
+        let q = self.value / rounding_factor;
+        let r = self.value % rounding_factor;
+        let rounded = apply_rounding(q as i128, r as i128, rounding_factor as i128, strategy);
+        Self {
+            value: Self::clamp_to_i64(rounded * rounding_factor as i128),
+        }
+    }
+
+    /// Divides `self` by `rhs`, rounding the quotient to `decimal_places` with
+    /// `strategy` — unlike `/` and [`checked_div`](Self::checked_div), which
+    /// truncate toward zero at full scale.
+    ///
+    /// Returns `None` if `rhs` is zero, if `decimal_places > DECIMALS`, or if the
+    /// result overflows the `D64` range.
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn checked_div_rounded(
+        self,
+        rhs: Self,
+        decimal_places: u8,
+        strategy: RoundingStrategy,
+    ) -> Option<Self> {
+        if rhs.value == 0 || decimal_places > Self::DECIMALS {
+            return None;
+        }
+        // value(self)/value(rhs) == self/rhs (SCALE cancels). Round
+        // self.value * 10^dp / rhs.value at dp scale, then restore full scale.
+        // The numerator fits i128: |value| <= ~9.2e18 and dp <= 8.
+        let num = self.value as i128 * pow10_i128(decimal_places);
+        let div = rhs.value as i128;
+        // Normalise to a positive divisor so the remainder carries the dividend's
+        // sign (both magnitudes are far below i128::MAX, so negation is safe).
+        let (num, div) = if div < 0 { (-num, -div) } else { (num, div) };
+        let at_dp = apply_rounding(num / div, num % div, div, strategy);
+        let restore = pow10_i128(Self::DECIMALS - decimal_places);
+        match at_dp.checked_mul(restore) {
+            Some(v) if v >= i64::MIN as i128 && v <= i64::MAX as i128 => {
+                Some(Self { value: v as i64 })
+            }
+            _ => None,
         }
     }
 }

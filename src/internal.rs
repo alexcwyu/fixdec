@@ -115,6 +115,52 @@ macro_rules! define_banker_round {
 define_banker_round!(banker_round_i64, i64);
 define_banker_round!(banker_round_i128, i128);
 
+/// Applies a [`RoundingStrategy`](crate::RoundingStrategy) to an integer division
+/// result. `q` is the truncated-toward-zero quotient and `r` the remainder, which
+/// carries the dividend's sign (`dividend == q * divisor + r`, `|r| < divisor`,
+/// `divisor > 0`). Returns the rounded quotient. Shared by the explicit
+/// `*_with_strategy` / `*_rounded` methods on both `D64` and `D96`.
+///
+/// Midpoint classification compares `2*|r|` against `divisor` (so it is exact for
+/// odd divisors too, e.g. dividing by a tick or a price). `2*|r|` fits `i128` for
+/// every in-crate caller (`|r| < divisor <= 2^95`).
+#[inline]
+pub(crate) const fn apply_rounding(
+    q: i128,
+    r: i128,
+    divisor: i128,
+    strategy: crate::RoundingStrategy,
+) -> i128 {
+    use crate::RoundingStrategy::*;
+    if r == 0 {
+        return q;
+    }
+    let neg = r < 0;
+    let twice = if neg { -(2 * r) } else { 2 * r }; // 2*|r|
+    let round_away = match strategy {
+        ToZero => false,
+        AwayFromZero => true,
+        ToPositiveInfinity => !neg,
+        ToNegativeInfinity => neg,
+        MidpointNearestEven => {
+            if twice > divisor {
+                true
+            } else if twice < divisor {
+                false
+            } else {
+                q % 2 != 0 // exact tie -> round to even
+            }
+        }
+        MidpointAwayFromZero => twice >= divisor, // tie -> away
+        MidpointTowardZero => twice > divisor,    // tie -> toward zero
+    };
+    if round_away {
+        if neg { q - 1 } else { q + 1 }
+    } else {
+        q
+    }
+}
+
 /// Euclid's GCD on unsigned 128-bit values. `gcd(x, 0) == x`, `gcd(0, y) == y`.
 /// Used to reduce `as_integer_ratio` to lowest terms (the denominator is always a
 /// power of ten, so the gcd is a divisor of `SCALE`).
