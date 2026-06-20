@@ -326,8 +326,17 @@ x.wrapping_sub(y)
 x.wrapping_mul(y)
 x.wrapping_div(y)
 
-// Fast integer multiplication (quantity * price)
-price.mul_i64(quantity)?
+// Overflowing (wrapped value + overflow flag; no overflowing_div)
+let (v, overflowed) = x.overflowing_add(y);
+x.overflowing_sub(y);
+x.overflowing_mul(y);
+
+// Integer operands (D64: _i64, D96: _i128) — add/sub take a whole-unit value,
+// div truncates toward zero like `/`. Each has a try_ twin.
+price.mul_i64(quantity)?   // fast scalar multiply
+x.add_i64(5)?;             // x + 5
+x.sub_i64(5)?;
+x.div_i64(3)?;             // truncating scalar division
 
 // Fused multiply-add (one rounding step)
 x.mul_add(y, z)?  // (x * y) + z
@@ -355,6 +364,24 @@ x.round()         // 123.00000000 (banker's rounding)
 x.round_dp(2)     // 123.46000000 (round to 2 decimals)
 x.trunc()         // 123.00000000 (truncate)
 x.fract()         // 0.45678900 (fractional part)
+x.as_integer_ratio() // (i64, u64) reduced lowest-terms, e.g. 1.5 -> (3, 2)
+```
+
+All of the above use **banker's rounding** (round half to even). For other modes,
+opt into a [`RoundingStrategy`] — the `*` / `/` operators are unaffected and always
+truncate toward zero:
+
+```rust
+use fixdec::RoundingStrategy;
+
+x.round_dp_with_strategy(2, RoundingStrategy::ToPositiveInfinity); // ceil at 2 dp
+x.checked_div_rounded(D64::from_str("3")?, 4, RoundingStrategy::MidpointAwayFromZero);
+
+// Tick- / lot-size quantization: round to the nearest multiple of a tick.
+let tick = D64::from_str("0.05")?;
+D64::from_str("1.07")?.quantize(tick, RoundingStrategy::MidpointNearestEven); // 1.05
+D64::from_str("1.07")?.checked_floor_to_tick(tick); // Some(1.05)
+D64::from_str("1.07")?.checked_ceil_to_tick(tick);  // Some(1.10)
 ```
 
 ### Financial Operations
