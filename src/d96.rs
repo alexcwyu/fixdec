@@ -757,7 +757,7 @@ impl D96 {
     ///
     /// Since we guarantee 96-bit inputs, we can use optimized 192-bit arithmetic
     #[inline(always)]
-    pub fn checked_mul(self, rhs: Self) -> Option<Self> {
+    pub const fn checked_mul(self, rhs: Self) -> Option<Self> {
         // Early exit for zero
         if self.value == 0 || rhs.value == 0 {
             return Some(Self::ZERO);
@@ -800,7 +800,10 @@ impl D96 {
 
         // SLOW PATH: Use 192-bit arithmetic for larger values
         let (prod_low, prod_high) = mul_96x96_to_192(a, b);
-        let quotient = div_192_by_1e12(prod_low, prod_high)?;
+        let quotient = match div_192_by_1e12(prod_low, prod_high) {
+            Some(q) => q,
+            None => return None,
+        };
 
         if quotient > Self::max_magnitude(result_negative) {
             return None;
@@ -832,7 +835,7 @@ impl D96 {
 
     /// Saturating multiplication
     #[inline(always)]
-    pub fn saturating_mul(self, rhs: Self) -> Self {
+    pub const fn saturating_mul(self, rhs: Self) -> Self {
         match self.checked_mul(rhs) {
             Some(result) => result,
             None => {
@@ -847,7 +850,7 @@ impl D96 {
 
     /// Wrapping multiplication
     #[inline(always)]
-    pub fn wrapping_mul(self, rhs: Self) -> Self {
+    pub const fn wrapping_mul(self, rhs: Self) -> Self {
         if self.value == 0 || rhs.value == 0 {
             return Self::ZERO;
         }
@@ -881,7 +884,7 @@ impl D96 {
     /// product is truncated toward zero, like all D96 multiplication.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
-    pub fn overflowing_mul(self, rhs: Self) -> (Self, bool) {
+    pub const fn overflowing_mul(self, rhs: Self) -> (Self, bool) {
         match self.checked_mul(rhs) {
             Some(result) => (result, false),
             None => (self.wrapping_mul(rhs), true),
@@ -908,7 +911,7 @@ impl D96 {
     /// Computes (self * mul) + add with only one rounding step
     /// More accurate and faster than separate mul + add
     #[inline(always)]
-    pub fn mul_add(self, mul: Self, add: Self) -> Option<Self> {
+    pub const fn mul_add(self, mul: Self, add: Self) -> Option<Self> {
         if self.value == 0 {
             return Some(add);
         }
@@ -927,7 +930,10 @@ impl D96 {
         debug_assert!(b <= Self::MIN.value.unsigned_abs());
 
         let (prod_low, prod_high) = mul_96x96_to_192(a, b);
-        let quotient = div_192_by_1e12(prod_low, prod_high)?;
+        let quotient = match div_192_by_1e12(prod_low, prod_high) {
+            Some(q) => q,
+            None => return None,
+        };
 
         if quotient > Self::max_magnitude(mul_negative) {
             return None;
@@ -940,10 +946,13 @@ impl D96 {
         };
 
         // Now add
-        let result = product.checked_add(add.value)?;
+        let result = match product.checked_add(add.value) {
+            Some(r) => r,
+            None => return None,
+        };
 
-        // Check 96-bit bounds
-        if !(Self::MIN.value..=Self::MAX.value).contains(&result) {
+        // Check 96-bit bounds (manual form: RangeInclusive::contains is not const)
+        if result < Self::MIN.value || result > Self::MAX.value {
             return None;
         }
 
@@ -953,7 +962,7 @@ impl D96 {
     /// Checked multiplication. Returns an error if overflow occurred.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
-    pub fn try_mul(self, rhs: Self) -> crate::Result<Self> {
+    pub const fn try_mul(self, rhs: Self) -> crate::Result<Self> {
         match self.checked_mul(rhs) {
             Some(result) => Ok(result),
             None => Err(DecimalError::Overflow),
@@ -1177,7 +1186,7 @@ impl D96 {
     /// Checked division. Returns `None` if `rhs` is zero or overflow occurred.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
-    pub fn checked_div(self, rhs: Self) -> Option<Self> {
+    pub const fn checked_div(self, rhs: Self) -> Option<Self> {
         if rhs.value == 0 {
             return None;
         }
@@ -1198,7 +1207,10 @@ impl D96 {
         } else {
             // Wide path: `a * scale` needs up to 136 bits.
             let (prod_low, prod_high) = mul_u128_by_small(a, scale);
-            div_192_by_u128(prod_low, prod_high, b)?
+            match div_192_by_u128(prod_low, prod_high, b) {
+                Some(q) => q,
+                None => return None,
+            }
         };
 
         // A negative result may reach |MIN| = 2^95 (e.g. MIN / 1 == MIN); a
@@ -1220,7 +1232,7 @@ impl D96 {
     /// Wrapping division. Wraps on overflow. Returns zero if `rhs` is zero.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
-    pub fn wrapping_div(self, rhs: Self) -> Self {
+    pub const fn wrapping_div(self, rhs: Self) -> Self {
         if rhs.value == 0 {
             return Self::ZERO;
         }
@@ -1251,7 +1263,7 @@ impl D96 {
     /// Saturating division. Clamps on overflow. Returns zero if `rhs` is zero.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
-    pub fn saturating_div(self, rhs: Self) -> Self {
+    pub const fn saturating_div(self, rhs: Self) -> Self {
         match self.checked_div(rhs) {
             Some(result) => result,
             None => {
@@ -1269,7 +1281,7 @@ impl D96 {
     /// Checked division. Returns an error if `rhs` is zero or overflow occurred.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
-    pub fn try_div(self, rhs: Self) -> crate::Result<Self> {
+    pub const fn try_div(self, rhs: Self) -> crate::Result<Self> {
         if rhs.value == 0 {
             return Err(DecimalError::DivisionByZero);
         }
@@ -2033,7 +2045,7 @@ impl D96 {
     /// Returns the reciprocal (multiplicative inverse) of `self`.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
-    pub fn recip(self) -> Option<Self> {
+    pub const fn recip(self) -> Option<Self> {
         if self.value == 0 {
             None
         } else {
@@ -2044,7 +2056,7 @@ impl D96 {
     /// Checked reciprocal. Returns an error if `self` is zero.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
-    pub fn try_recip(self) -> crate::Result<Self> {
+    pub const fn try_recip(self) -> crate::Result<Self> {
         match self.recip() {
             Some(result) => Ok(result),
             None => Err(DecimalError::DivisionByZero),
@@ -2053,7 +2065,7 @@ impl D96 {
 
     /// Raises `self` to an integer power.
     #[must_use = "this returns the result of the operation, without modifying the original"]
-    pub fn powi(self, exp: i32) -> Option<Self> {
+    pub const fn powi(self, exp: i32) -> Option<Self> {
         if exp == 0 {
             return Some(Self::ONE);
         }
@@ -2067,10 +2079,16 @@ impl D96 {
 
         while n > 0 {
             if n % 2 == 1 {
-                result = result.checked_mul(base)?;
+                result = match result.checked_mul(base) {
+                    Some(r) => r,
+                    None => return None,
+                };
             }
             if n > 1 {
-                base = base.checked_mul(base)?;
+                base = match base.checked_mul(base) {
+                    Some(b) => b,
+                    None => return None,
+                };
             }
             n /= 2;
         }
@@ -2086,7 +2104,7 @@ impl D96 {
     /// Checked integer power. Returns an error if overflow occurred.
     #[inline(always)]
     #[must_use = "this returns the result of the operation, without modifying the original"]
-    pub fn try_powi(self, exp: i32) -> crate::Result<Self> {
+    pub const fn try_powi(self, exp: i32) -> crate::Result<Self> {
         match self.powi(exp) {
             Some(result) => Ok(result),
             None => Err(DecimalError::Overflow),
