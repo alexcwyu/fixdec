@@ -394,6 +394,14 @@ impl D96 {
     /// minimal-decimal decomposition is `(mantissa(), 10^scale())`. Reduction
     /// divides out `gcd(|raw|, SCALE)` (a power of ten), so the denominator is
     /// always a divisor of `10^DECIMALS` and fits `u128`.
+    ///
+    /// # Examples
+    /// ```
+    /// use fixdec::D96;
+    /// assert_eq!(D96::from_str_exact("1.5").unwrap().as_integer_ratio(), (3, 2));
+    /// assert_eq!(D96::from_str_exact("-0.25").unwrap().as_integer_ratio(), (-1, 4));
+    /// assert_eq!(D96::ZERO.as_integer_ratio(), (0, 1));
+    /// ```
     #[inline]
     #[must_use]
     pub const fn as_integer_ratio(self) -> (i128, u128) {
@@ -1647,6 +1655,15 @@ impl D96 {
     /// `sqrt` to be removed — so it is formed in a 192-bit intermediate and the
     /// integer sqrt is taken there. The result is `<= ~2e20`, always inside the
     /// `D96` range, so no overflow check is needed.
+    ///
+    /// # Examples
+    /// ```
+    /// use fixdec::D96;
+    /// assert_eq!(D96::from_str_exact("9").unwrap().sqrt(), Some(D96::from_str_exact("3").unwrap()));
+    /// // floored at 12 decimal places: sqrt(2) = 1.41421356237...
+    /// assert_eq!(D96::from_str_exact("2").unwrap().sqrt().unwrap().to_raw(), 1_414_213_562_373);
+    /// assert_eq!(D96::from_str_exact("-1").unwrap().sqrt(), None);
+    /// ```
     #[inline]
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn sqrt(self) -> Option<Self> {
@@ -1949,6 +1966,19 @@ impl D96 {
     /// `MidpointNearestEven` yields `1.05`.
     ///
     /// Returns `None` if `tick <= 0` or the result overflows the 96-bit range.
+    ///
+    /// # Examples
+    /// ```
+    /// use fixdec::{D96, RoundingStrategy};
+    /// let price = D96::from_str_exact("1.07").unwrap();
+    /// let tick = D96::from_str_exact("0.05").unwrap();
+    /// assert_eq!(
+    ///     price.checked_quantize(tick, RoundingStrategy::MidpointNearestEven).unwrap(),
+    ///     D96::from_str_exact("1.05").unwrap()
+    /// );
+    /// assert_eq!(price.checked_floor_to_tick(tick).unwrap(), D96::from_str_exact("1.05").unwrap());
+    /// assert_eq!(price.checked_ceil_to_tick(tick).unwrap(), D96::from_str_exact("1.10").unwrap());
+    /// ```
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn checked_quantize(self, tick: Self, strategy: RoundingStrategy) -> Option<Self> {
         if tick.value <= 0 {

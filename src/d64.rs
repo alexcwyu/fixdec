@@ -270,6 +270,14 @@ impl D64 {
     /// minimal-decimal decomposition is `(mantissa(), 10^scale())`. Reduction
     /// divides out `gcd(|raw|, SCALE)` (a power of ten), so the denominator is
     /// always a divisor of `10^DECIMALS` and fits `u64`.
+    ///
+    /// # Examples
+    /// ```
+    /// use fixdec::D64;
+    /// assert_eq!(D64::from_str_exact("1.5").unwrap().as_integer_ratio(), (3, 2));
+    /// assert_eq!(D64::from_str_exact("-0.25").unwrap().as_integer_ratio(), (-1, 4));
+    /// assert_eq!(D64::ZERO.as_integer_ratio(), (0, 1));
+    /// ```
     #[inline]
     #[must_use]
     pub const fn as_integer_ratio(self) -> (i64, u64) {
@@ -671,8 +679,24 @@ impl D64 {
         }
     }
 
-    /// Multiply by an integer (faster than general multiplication)
-    /// Useful for: quantity * price, shares * rate, etc.
+    /// Multiply by an integer scalar (faster than general multiplication).
+    /// Useful for: quantity * price, shares * rate, etc. Returns `None` on
+    /// overflow. See also [`add_i64`](Self::add_i64), [`sub_i64`](Self::sub_i64),
+    /// and [`div_i64`](Self::div_i64) (the latter truncates toward zero).
+    ///
+    /// # Examples
+    /// ```
+    /// use fixdec::D64;
+    /// let x = D64::from_str_exact("1.5").unwrap();
+    /// assert_eq!(x.mul_i64(3).unwrap(), D64::from_str_exact("4.5").unwrap());
+    /// assert_eq!(x.add_i64(2).unwrap(), D64::from_str_exact("3.5").unwrap());
+    /// assert_eq!(x.sub_i64(2).unwrap(), D64::from_str_exact("-0.5").unwrap());
+    /// // div_i64 truncates toward zero, like the `/` operator
+    /// assert_eq!(
+    ///     D64::from_str_exact("10").unwrap().div_i64(3).unwrap(),
+    ///     D64::from_str_exact("3.33333333").unwrap()
+    /// );
+    /// ```
     pub const fn mul_i64(self, rhs: i64) -> Option<Self> {
         match self.value.checked_mul(rhs) {
             Some(result) => Some(Self { value: result }),
@@ -1079,6 +1103,15 @@ impl D64 {
     /// Implemented as `floor(isqrt(raw * SCALE))`: `raw * 1e8 <= i64::MAX * 1e8
     /// < i128::MAX`, so the radicand fits an i128 and the integer sqrt fits the
     /// `D64` range with room to spare (`<= ~3.04e13`).
+    ///
+    /// # Examples
+    /// ```
+    /// use fixdec::D64;
+    /// assert_eq!(D64::from_str_exact("9").unwrap().sqrt(), Some(D64::from_str_exact("3").unwrap()));
+    /// // floored at 8 decimal places: sqrt(2) = 1.41421356237...
+    /// assert_eq!(D64::from_str_exact("2").unwrap().sqrt().unwrap().to_raw(), 141_421_356);
+    /// assert_eq!(D64::from_str_exact("-1").unwrap().sqrt(), None);
+    /// ```
     #[inline]
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn sqrt(self) -> Option<Self> {
@@ -1333,6 +1366,21 @@ impl D64 {
     ///
     /// # Panics
     /// Panics if `decimal_places > DECIMALS`.
+    ///
+    /// # Examples
+    /// ```
+    /// use fixdec::{D64, RoundingStrategy};
+    /// let x = D64::from_str_exact("2.5").unwrap();
+    /// // banker's rounding sends the .5 tie to the even neighbour
+    /// assert_eq!(
+    ///     x.round_dp_with_strategy(0, RoundingStrategy::MidpointNearestEven),
+    ///     D64::from_str_exact("2").unwrap()
+    /// );
+    /// assert_eq!(
+    ///     x.round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero),
+    ///     D64::from_str_exact("3").unwrap()
+    /// );
+    /// ```
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn round_dp_with_strategy(
         self,
@@ -1362,6 +1410,20 @@ impl D64 {
     ///
     /// Returns `None` if `rhs` is zero, if `decimal_places > DECIMALS`, or if the
     /// result overflows the `D64` range.
+    ///
+    /// # Examples
+    /// ```
+    /// use fixdec::{D64, RoundingStrategy};
+    /// // 10 / 3 = 3.3333..., rounded to 2 decimal places (banker's) = 3.33
+    /// let q = D64::from_str_exact("10").unwrap()
+    ///     .checked_div_rounded(
+    ///         D64::from_str_exact("3").unwrap(),
+    ///         2,
+    ///         RoundingStrategy::MidpointNearestEven,
+    ///     )
+    ///     .unwrap();
+    /// assert_eq!(q, D64::from_str_exact("3.33").unwrap());
+    /// ```
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn checked_div_rounded(
         self,
@@ -1397,6 +1459,18 @@ impl D64 {
     /// `MidpointNearestEven` yields `1.05`.
     ///
     /// Returns `None` if `tick <= 0` or the result overflows the `D64` range.
+    ///
+    /// # Examples
+    /// ```
+    /// use fixdec::{D64, RoundingStrategy};
+    /// let price = D64::from_str_exact("1.07").unwrap();
+    /// let tick = D64::from_str_exact("0.05").unwrap();
+    /// // 1.07 / 0.05 = 21.4 -> nearest tick 21 -> 1.05
+    /// assert_eq!(
+    ///     price.checked_quantize(tick, RoundingStrategy::MidpointNearestEven).unwrap(),
+    ///     D64::from_str_exact("1.05").unwrap()
+    /// );
+    /// ```
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn checked_quantize(self, tick: Self, strategy: RoundingStrategy) -> Option<Self> {
         if tick.value <= 0 {
@@ -1432,6 +1506,15 @@ impl D64 {
 
     /// Largest multiple of `tick` that is `<= self` (`floor(self / tick) * tick`).
     /// Returns `None` if `tick <= 0` or the result overflows.
+    ///
+    /// # Examples
+    /// ```
+    /// use fixdec::D64;
+    /// let price = D64::from_str_exact("1.07").unwrap();
+    /// let tick = D64::from_str_exact("0.05").unwrap();
+    /// assert_eq!(price.checked_floor_to_tick(tick).unwrap(), D64::from_str_exact("1.05").unwrap());
+    /// assert_eq!(price.checked_ceil_to_tick(tick).unwrap(), D64::from_str_exact("1.10").unwrap());
+    /// ```
     #[must_use = "this returns the result of the operation, without modifying the original"]
     pub const fn checked_floor_to_tick(self, tick: Self) -> Option<Self> {
         self.checked_quantize(tick, RoundingStrategy::ToNegativeInfinity)
