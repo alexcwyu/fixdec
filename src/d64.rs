@@ -1351,6 +1351,60 @@ impl D64 {
             _ => None,
         }
     }
+
+    /// Rounds `self` to the nearest multiple of `tick` using `strategy` — a
+    /// tick-size / lot-size quantizer: `round(self / tick) * tick`. The
+    /// `self / tick` step is rounded per `strategy` (it does NOT go through the
+    /// truncating `/` operator), so quantizing `1.07` to a `0.05` tick with
+    /// `MidpointNearestEven` yields `1.05`.
+    ///
+    /// Returns `None` if `tick <= 0` or the result overflows the `D64` range.
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn checked_quantize(self, tick: Self, strategy: RoundingStrategy) -> Option<Self> {
+        if tick.value <= 0 {
+            return None;
+        }
+        // round(self / tick) as an integer count of ticks, then scale back.
+        let n = apply_rounding(
+            (self.value / tick.value) as i128,
+            (self.value % tick.value) as i128,
+            tick.value as i128,
+            strategy,
+        );
+        match n.checked_mul(tick.value as i128) {
+            Some(v) if v >= i64::MIN as i128 && v <= i64::MAX as i128 => {
+                Some(Self { value: v as i64 })
+            }
+            _ => None,
+        }
+    }
+
+    /// Like [`checked_quantize`](Self::checked_quantize) but panics instead of
+    /// returning `None`.
+    ///
+    /// # Panics
+    /// Panics if `tick <= 0` or the result overflows the `D64` range.
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn quantize(self, tick: Self, strategy: RoundingStrategy) -> Self {
+        match self.checked_quantize(tick, strategy) {
+            Some(v) => v,
+            None => panic!("quantize: tick must be positive and the result in range"),
+        }
+    }
+
+    /// Largest multiple of `tick` that is `<= self` (`floor(self / tick) * tick`).
+    /// Returns `None` if `tick <= 0` or the result overflows.
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn checked_floor_to_tick(self, tick: Self) -> Option<Self> {
+        self.checked_quantize(tick, RoundingStrategy::ToNegativeInfinity)
+    }
+
+    /// Smallest multiple of `tick` that is `>= self` (`ceil(self / tick) * tick`).
+    /// Returns `None` if `tick <= 0` or the result overflows.
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    pub const fn checked_ceil_to_tick(self, tick: Self) -> Option<Self> {
+        self.checked_quantize(tick, RoundingStrategy::ToPositiveInfinity)
+    }
 }
 
 // ============================================================================
