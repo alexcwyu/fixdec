@@ -87,7 +87,11 @@ fn d96_mul_add_matches_mul_then_add() {
         let x = D96::from_str_exact(s).unwrap();
         if let Some(sq) = x.checked_mul(x) {
             let expected = sq.checked_add(D96::ONE).unwrap();
-            assert_eq!(x.mul_add(x, D96::ONE), Some(expected), "mul_add mismatch for {s}");
+            assert_eq!(
+                x.mul_add(x, D96::ONE),
+                Some(expected),
+                "mul_add mismatch for {s}"
+            );
         }
     }
     // Exact small case: 1.5 * 2.5 + 0.25 == 4.0

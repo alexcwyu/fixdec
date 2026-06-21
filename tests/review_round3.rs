@@ -1,7 +1,6 @@
-//! Regression tests for deep-review round 3 (2026-06-19).
+//! Regression tests for conversion, parsing, and D96 range-boundary behavior.
 //!
-//! Each test pins a confirmed finding from an adversarial multi-agent review so
-//! that an independent cross-review (GPT / DeepSeek) can re-verify the fix.
+//! Each test pins an edge case that should remain stable across future changes.
 //! Findings are grouped: D96 96-bit invariant + signed-MIN (multiply/divide),
 //! parser overflow & lossy/exact parity, Display rounding carry & banker's,
 //! lossy with_scale range checks, D96 integer From → TryFrom, and assorted
@@ -90,11 +89,18 @@ fn d64_parse_out_of_range_integer_is_overflow() {
         "18446744073709551616.5", // 2^64 + .5   -> was Ok(0.5)
     ] {
         assert_eq!(D64::from_str(s), Err(DecimalError::Overflow), "exact {s:?}");
-        assert_eq!(D64::from_str_lossy(s), Err(DecimalError::Overflow), "lossy {s:?}");
+        assert_eq!(
+            D64::from_str_lossy(s),
+            Err(DecimalError::Overflow),
+            "lossy {s:?}"
+        );
     }
     // Genuine boundary values still parse.
     assert_eq!(D64::from_str("92233720368.54775807").unwrap(), D64::MAX);
-    assert_eq!(D64::from_str_lossy("92233720368.54775807").unwrap(), D64::MAX);
+    assert_eq!(
+        D64::from_str_lossy("92233720368.54775807").unwrap(),
+        D64::MAX
+    );
 }
 
 // ===========================================================================
@@ -104,12 +110,16 @@ fn d64_parse_out_of_range_integer_is_overflow() {
 #[test]
 fn d96_parse_huge_integer_is_overflow_not_panic() {
     for s in [
-        "340282366920938463463374607431768211456",  // 2^128 (39 digits)
-        "340282366920938463463374607431768211457",  // 2^128 + 1
-        "999999999999999999999999999999999999999",  // 39 nines
+        "340282366920938463463374607431768211456", // 2^128 (39 digits)
+        "340282366920938463463374607431768211457", // 2^128 + 1
+        "999999999999999999999999999999999999999", // 39 nines
     ] {
         assert_eq!(D96::from_str(s), Err(DecimalError::Overflow), "exact {s:?}");
-        assert_eq!(D96::from_str_lossy(s), Err(DecimalError::Overflow), "lossy {s:?}");
+        assert_eq!(
+            D96::from_str_lossy(s),
+            Err(DecimalError::Overflow),
+            "lossy {s:?}"
+        );
     }
 }
 
@@ -149,7 +159,10 @@ fn d64_lossy_accepts_min() {
     assert_eq!(D64::from_str_lossy(s).unwrap(), D64::MIN);
     // and they still agree on MIN+1
     let s1 = "-92233720368.54775807";
-    assert_eq!(D64::from_str_lossy(s1).unwrap(), D64::from_str_exact(s1).unwrap());
+    assert_eq!(
+        D64::from_str_lossy(s1).unwrap(),
+        D64::from_str_exact(s1).unwrap()
+    );
 }
 
 // ===========================================================================
@@ -309,7 +322,7 @@ fn trailing_dot_mantissa_is_consistent() {
 }
 
 // ===========================================================================
-// [Codex adversarial review] D96::from_i64 / from_u64 must preserve the 96-bit
+// D96::from_i64 / from_u64 must preserve the 96-bit
 // invariant — they were public, safe-looking, infallible constructors that
 // minted out-of-range values (D96 integer range is only ~±3.96e16, far below
 // i64/u64). Now they match D64 and return a range-checked Option.

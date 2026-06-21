@@ -27,12 +27,16 @@ fn d64_slice_roundtrip() {
 
 #[test]
 fn d96_slice_roundtrip() {
-    let v = [D96::from_str("2500.123456789012").unwrap(), D96::MAX, D96::MIN];
+    let v = [
+        D96::from_str("2500.123456789012").unwrap(),
+        D96::MAX,
+        D96::MIN,
+    ];
     // D96 implements `IntoBytes` (value -> bytes) so the write direction is
-    // zero-copy...
+    // D64 supports zero-copy reads.
     let b: &[u8] = v.as_bytes();
     assert_eq!(b.len(), 48);
-    // ...but it deliberately does NOT implement `FromBytes`, so `ref_from_bytes`
+    // D96 deliberately does not implement `FromBytes`, so `ref_from_bytes`
     // does not exist for D96 (it would smuggle out-of-96-bit values into D96
     // arithmetic). Read back through the checked reader instead.
     for (i, &d) in v.iter().enumerate() {
@@ -40,7 +44,7 @@ fn d96_slice_roundtrip() {
     }
 }
 
-// Regression (Codex round 4): D96 is not `FromBytes`. An out-of-96-bit pattern
+// D96 is not `FromBytes`. An out-of-96-bit pattern
 // cannot be reinterpreted as a D96 via zerocopy; the checked reader rejects it.
 #[test]
 fn d96_out_of_range_bytes_rejected_not_constructed() {

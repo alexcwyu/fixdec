@@ -37,7 +37,14 @@ fn d64_algebraic_identities() {
 
 #[test]
 fn d96_algebraic_identities() {
-    for s in ["0", "1", "-1", "123.456789012", "-9999.999999999999", "0.000000000001"] {
+    for s in [
+        "0",
+        "1",
+        "-1",
+        "123.456789012",
+        "-9999.999999999999",
+        "0.000000000001",
+    ] {
         let a = d96(s);
         assert_eq!(a + D96::ZERO, a, "a + 0 == a for {s}");
         assert_eq!(a - D96::ZERO, a, "a - 0 == a for {s}");
@@ -71,7 +78,10 @@ fn d64_recip_roundtrip_and_zero() {
     // tiny, not exact.
     let back = d64("3").recip().unwrap().recip().unwrap();
     let diff = (back - d64("3")).abs();
-    assert!(diff <= D64::from_raw(5), "recip(recip(3)) within 5 ULP, got {back}");
+    assert!(
+        diff <= D64::from_raw(5),
+        "recip(recip(3)) within 5 ULP, got {back}"
+    );
 }
 
 #[test]
@@ -88,7 +98,14 @@ fn d96_recip_zero_is_none() {
 
 #[test]
 fn d64_to_d96_roundtrip_is_lossless() {
-    for d in [D64::MIN, D64::MAX, D64::ZERO, D64::ONE, d64("-1"), d64("123.456")] {
+    for d in [
+        D64::MIN,
+        D64::MAX,
+        D64::ZERO,
+        D64::ONE,
+        d64("-1"),
+        d64("123.456"),
+    ] {
         let widened = d.to_d96();
         let narrowed = widened.to_d64().expect("every D64 fits back into D64");
         assert_eq!(narrowed, d, "D64 -> D96 -> D64 round trip for {d}");
@@ -115,7 +132,12 @@ fn d96_to_d64_narrowing_rules() {
 
 #[test]
 fn d64_f64_roundtrip_exact_decimals() {
-    for (s, x) in [("0.5", 0.5), ("0.25", 0.25), ("0.125", 0.125), ("1234.5", 1234.5)] {
+    for (s, x) in [
+        ("0.5", 0.5),
+        ("0.25", 0.25),
+        ("0.125", 0.125),
+        ("1234.5", 1234.5),
+    ] {
         let from_float = D64::from_f64(x).unwrap();
         assert_eq!(from_float, d64(s), "from_f64({x}) == from_str({s})");
         assert_eq!(from_float.to_f64(), x, "to_f64 round trip for {s}");
@@ -143,7 +165,13 @@ fn d96_f64_roundtrip_exact_decimals() {
 
 #[test]
 fn d64_byte_roundtrips() {
-    for d in [D64::MIN, D64::MAX, D64::ZERO, d64("-123.456"), d64("0.00000001")] {
+    for d in [
+        D64::MIN,
+        D64::MAX,
+        D64::ZERO,
+        d64("-123.456"),
+        d64("0.00000001"),
+    ] {
         assert_eq!(D64::from_le_bytes(d.to_le_bytes()), d);
         assert_eq!(D64::from_be_bytes(d.to_be_bytes()), d);
         assert_eq!(D64::from_ne_bytes(d.to_ne_bytes()), d);
@@ -152,7 +180,13 @@ fn d64_byte_roundtrips() {
 
 #[test]
 fn d96_byte_roundtrips() {
-    for d in [D96::MIN, D96::MAX, D96::ZERO, d96("-123.456789"), d96("0.000000000001")] {
+    for d in [
+        D96::MIN,
+        D96::MAX,
+        D96::ZERO,
+        d96("-123.456789"),
+        d96("0.000000000001"),
+    ] {
         assert_eq!(D96::from_le_bytes(d.to_le_bytes()), d);
         assert_eq!(D96::from_be_bytes(d.to_be_bytes()), d);
         assert_eq!(D96::from_ne_bytes(d.to_ne_bytes()), d);
@@ -260,8 +294,16 @@ fn from_f64_matches_std_round_oracle() {
     for i in -2000..2000 {
         // structured ties and quarters
         let v = i as f64 / 80.0;
-        assert_eq!(D64::from_f64(v), d64_from_f64_oracle(v), "D64 from_f64({v})");
-        assert_eq!(D96::from_f64(v), d96_from_f64_oracle(v), "D96 from_f64({v})");
+        assert_eq!(
+            D64::from_f64(v),
+            d64_from_f64_oracle(v),
+            "D64 from_f64({v})"
+        );
+        assert_eq!(
+            D96::from_f64(v),
+            d96_from_f64_oracle(v),
+            "D96 from_f64({v})"
+        );
     }
     for _ in 0..5000 {
         // xorshift over a wide range of magnitudes/signs
@@ -269,8 +311,16 @@ fn from_f64_matches_std_round_oracle() {
         bits ^= bits >> 7;
         bits ^= bits << 17;
         let v = (bits as i64 as f64) / 1.0e9;
-        assert_eq!(D64::from_f64(v), d64_from_f64_oracle(v), "D64 from_f64({v})");
-        assert_eq!(D96::from_f64(v), d96_from_f64_oracle(v), "D96 from_f64({v})");
+        assert_eq!(
+            D64::from_f64(v),
+            d64_from_f64_oracle(v),
+            "D64 from_f64({v})"
+        );
+        assert_eq!(
+            D96::from_f64(v),
+            d96_from_f64_oracle(v),
+            "D96 from_f64({v})"
+        );
     }
 }
 
@@ -318,7 +368,10 @@ fn d64_from_str_scientific() {
     // mantissa has 9 dp but the exponent shifts it to 7 dp -> representable
     assert_eq!(D64::from_str("1.234567891e2").unwrap(), d64("123.4567891"));
     // agrees with the plain form
-    assert_eq!(D64::from_str("1.5e3").unwrap(), D64::from_str("1500").unwrap());
+    assert_eq!(
+        D64::from_str("1.5e3").unwrap(),
+        D64::from_str("1500").unwrap()
+    );
     // boundary: D64::MAX is reachable via scientific notation
     assert_eq!(D64::from_str("9.223372036854775807e10").unwrap(), D64::MAX);
     // errors
@@ -337,7 +390,10 @@ fn d96_from_str_scientific() {
     assert_eq!(D96::from_str("1e-12").unwrap(), d96("0.000000000001"));
     assert_eq!(D96::from_str("-3.14e2").unwrap(), d96("-314"));
     // mantissa 12 dp, exponent +3 -> 9 dp, representable
-    assert_eq!(D96::from_str("1.234567890123e3").unwrap(), d96("1234.567890123"));
+    assert_eq!(
+        D96::from_str("1.234567890123e3").unwrap(),
+        d96("1234.567890123")
+    );
     assert!(D96::from_str("1e-13").is_err()); // 13 dp -> PrecisionLoss
     assert!(D96::from_str("1e999").is_err()); // overflow
 }

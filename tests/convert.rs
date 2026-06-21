@@ -31,16 +31,39 @@ fn d96_to_d64_exact() {
     let v = D96::from_str("1234.56").unwrap();
     assert_eq!(D64::try_from(v), Ok(D64::from_str("1234.56").unwrap()));
     assert_eq!(v.to_d64(), Ok(D64::from_str("1234.56").unwrap()));
-    assert_eq!(D96::from_str("0.00000001").unwrap().to_d64().unwrap().to_raw(), 1);
-    assert_eq!(D96::from_str("-1234.56").unwrap().to_d64().unwrap().to_string(), "-1234.56");
+    assert_eq!(
+        D96::from_str("0.00000001")
+            .unwrap()
+            .to_d64()
+            .unwrap()
+            .to_raw(),
+        1
+    );
+    assert_eq!(
+        D96::from_str("-1234.56")
+            .unwrap()
+            .to_d64()
+            .unwrap()
+            .to_string(),
+        "-1234.56"
+    );
 }
 
 #[test]
 fn d96_to_d64_precision_loss() {
     // 9th+ decimal can't be represented exactly in D64 (8dp)
-    assert_eq!(D96::from_str("1.000000000001").unwrap().to_d64(), Err(DecimalError::PrecisionLoss));
-    assert_eq!(D64::try_from(D96::from_str("1.000000000001").unwrap()), Err(DecimalError::PrecisionLoss));
-    assert_eq!(D96::from_str("-0.000000005").unwrap().to_d64(), Err(DecimalError::PrecisionLoss));
+    assert_eq!(
+        D96::from_str("1.000000000001").unwrap().to_d64(),
+        Err(DecimalError::PrecisionLoss)
+    );
+    assert_eq!(
+        D64::try_from(D96::from_str("1.000000000001").unwrap()),
+        Err(DecimalError::PrecisionLoss)
+    );
+    assert_eq!(
+        D96::from_str("-0.000000005").unwrap().to_d64(),
+        Err(DecimalError::PrecisionLoss)
+    );
 }
 
 #[test]
@@ -50,9 +73,22 @@ fn d96_to_d64_round_bankers() {
     assert_eq!(D96::from_raw(135_000).to_d64_round().unwrap().to_raw(), 14); // 13.5 -> 14
     assert_eq!(D96::from_raw(127_000).to_d64_round().unwrap().to_raw(), 13); // 12.7 -> 13
     assert_eq!(D96::from_raw(124_999).to_d64_round().unwrap().to_raw(), 12); // 12.4999 -> 12
-    assert_eq!(D96::from_raw(-125_000).to_d64_round().unwrap().to_raw(), -12);
-    assert_eq!(D96::from_raw(-135_000).to_d64_round().unwrap().to_raw(), -14);
-    assert_eq!(D96::from_str("1234.56").unwrap().to_d64_round().unwrap().to_string(), "1234.56");
+    assert_eq!(
+        D96::from_raw(-125_000).to_d64_round().unwrap().to_raw(),
+        -12
+    );
+    assert_eq!(
+        D96::from_raw(-135_000).to_d64_round().unwrap().to_raw(),
+        -14
+    );
+    assert_eq!(
+        D96::from_str("1234.56")
+            .unwrap()
+            .to_d64_round()
+            .unwrap()
+            .to_string(),
+        "1234.56"
+    );
 }
 
 #[test]

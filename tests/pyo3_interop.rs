@@ -29,12 +29,12 @@ fn d64_into_python_is_exact_decimal() {
     Python::attach(|py| {
         for s in ["0", "1234.5678", "-0.00000001", "92233720368.54775807"] {
             let obj = D64::from_str(s).unwrap().into_pyobject(py).unwrap();
-            // It is a decimal.Decimal...
+            // It is a decimal.Decimal.
             let is_dec = obj
                 .is_instance(&py.import("decimal").unwrap().getattr("Decimal").unwrap())
                 .unwrap();
             assert!(is_dec, "D64 -> decimal.Decimal for {s}");
-            // ...equal to Decimal(canonical_string).
+            // It equals Decimal(canonical_string).
             let expected = py_decimal(py, &D64::from_str(s).unwrap().to_string());
             assert!(obj.eq(&expected).unwrap(), "value preserved for {s}");
         }
@@ -61,10 +61,16 @@ fn d64_from_python_decimal_and_str() {
     Python::attach(|py| {
         // Decimal whose str() would be scientific ("1E-7") must still extract.
         let dec = py_decimal(py, "0.0000001");
-        assert_eq!(dec.extract::<D64>().unwrap(), D64::from_str("0.0000001").unwrap());
+        assert_eq!(
+            dec.extract::<D64>().unwrap(),
+            D64::from_str("0.0000001").unwrap()
+        );
         // plain Decimal
         let dec2 = py_decimal(py, "1234.5678");
-        assert_eq!(dec2.extract::<D64>().unwrap(), D64::from_str("1234.5678").unwrap());
+        assert_eq!(
+            dec2.extract::<D64>().unwrap(),
+            D64::from_str("1234.5678").unwrap()
+        );
         // Python str
         let s = "-42.5".into_pyobject(py).unwrap();
         assert_eq!(s.extract::<D64>().unwrap(), D64::from_str("-42.5").unwrap());
@@ -87,7 +93,10 @@ fn d64_from_python_int_and_float() {
 fn d96_from_python_types() {
     Python::attach(|py| {
         let dec = py_decimal(py, "0.000000000001");
-        assert_eq!(dec.extract::<D96>().unwrap(), D96::from_str("0.000000000001").unwrap());
+        assert_eq!(
+            dec.extract::<D96>().unwrap(),
+            D96::from_str("0.000000000001").unwrap()
+        );
         let i = 100_i64.into_pyobject(py).unwrap();
         assert_eq!(i.extract::<D96>().unwrap(), D96::from_str("100").unwrap());
         let f = 0.25_f64.into_pyobject(py).unwrap();
@@ -130,7 +139,10 @@ fn trailing_zero_decimal_extracts() {
         let d = py_decimal(py, "1.230000000");
         assert_eq!(d.extract::<D64>().unwrap(), D64::from_str("1.23").unwrap());
         let d96 = py_decimal(py, "1.230000000000000");
-        assert_eq!(d96.extract::<D96>().unwrap(), D96::from_str("1.23").unwrap());
+        assert_eq!(
+            d96.extract::<D96>().unwrap(),
+            D96::from_str("1.23").unwrap()
+        );
     });
 }
 
@@ -141,12 +153,23 @@ fn malformed_input_raises_value_error() {
         // bad numeric string -> ValueError (not decimal.InvalidOperation)
         let bad = "not a number".into_pyobject(py).unwrap();
         let err = bad.extract::<D64>().unwrap_err();
-        assert!(err.is_instance_of::<PyValueError>(py), "bad str -> ValueError");
+        assert!(
+            err.is_instance_of::<PyValueError>(py),
+            "bad str -> ValueError"
+        );
         // non-finite Decimal -> ValueError
         let nan = py_decimal(py, "NaN");
-        assert!(nan.extract::<D64>().unwrap_err().is_instance_of::<PyValueError>(py));
+        assert!(
+            nan.extract::<D64>()
+                .unwrap_err()
+                .is_instance_of::<PyValueError>(py)
+        );
         let inf = py_decimal(py, "Infinity");
-        assert!(inf.extract::<D96>().unwrap_err().is_instance_of::<PyValueError>(py));
+        assert!(
+            inf.extract::<D96>()
+                .unwrap_err()
+                .is_instance_of::<PyValueError>(py)
+        );
     });
 }
 
@@ -164,8 +187,11 @@ fn out_of_range_and_precision_loss_raise() {
         assert!(big.extract::<D64>().is_err(), "1e11 int overflows D64");
         // Decimal with 9 dp -> strict parse rejects (PrecisionLoss) -> ValueError
         let too_precise = py_decimal(py, "0.000000001");
-        assert!(too_precise.extract::<D64>().is_err(), "9 dp not representable in D64");
-        // ...but D96 (12 dp) accepts the same value
+        assert!(
+            too_precise.extract::<D64>().is_err(),
+            "9 dp not representable in D64"
+        );
+        // D96 (12 dp) accepts the same value.
         assert_eq!(
             too_precise.extract::<D96>().unwrap(),
             D96::from_str("0.000000001").unwrap()
@@ -174,7 +200,7 @@ fn out_of_range_and_precision_loss_raise() {
 }
 
 // ---------------------------------------------------------------------------
-// Regression [review round 3]: a Decimal SUBCLASS that overrides __format__
+// Regression: a Decimal subclass that overrides __format__
 // must not hijack extraction. We require the EXACT Decimal type for the
 // fast path, so subclasses fall through to the base `Decimal(ob)` wrap and the
 // TRUE numeric value is used (not the overridden __format__ string).

@@ -10,10 +10,12 @@ readme = "README.md"
 keywords = ["decimal", "fixed-point", "finance", "cryptocurrency", "no-std"]
 categories = ["mathematics", "no-std", "data-structures"]
 exclude = [
+    ".DS_Store",
     ".github/",
     ".idea/",
     ".editorconfig",
     ".gitignore",
+    "docs/superpowers/",
     "CONTRIBUTING.md",
 ]
 

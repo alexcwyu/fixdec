@@ -124,7 +124,9 @@ fn bench_round_dp_with_strategy_common(c: &mut Criterion) {
 fn bench_round_dp_with_strategy_directed(c: &mut Criterion) {
     c.bench_function("d96_round_dp_with_strategy_directed", |b| {
         let d = D96::from_str("123.456789").unwrap();
-        b.iter(|| black_box(black_box(d).round_dp_with_strategy(2, RoundingStrategy::AwayFromZero)));
+        b.iter(|| {
+            black_box(black_box(d).round_dp_with_strategy(2, RoundingStrategy::AwayFromZero))
+        });
     });
 }
 
@@ -165,7 +167,10 @@ fn bench_checked_quantize(c: &mut Criterion) {
         let d = D96::from_str("123.456789").unwrap();
         let tick = D96::from_str("0.01").unwrap();
         b.iter(|| {
-            black_box(black_box(d).checked_quantize(black_box(tick), RoundingStrategy::MidpointNearestEven))
+            black_box(
+                black_box(d)
+                    .checked_quantize(black_box(tick), RoundingStrategy::MidpointNearestEven),
+            )
         });
     });
 }

@@ -43,7 +43,10 @@ fn d64_mul_overflow() {
 #[test]
 fn d64_division_corner_cases() {
     assert_eq!(D64::ONE.checked_div(D64::ZERO), None);
-    assert_eq!(D64::ONE.try_div(D64::ZERO), Err(DecimalError::DivisionByZero));
+    assert_eq!(
+        D64::ONE.try_div(D64::ZERO),
+        Err(DecimalError::DivisionByZero)
+    );
     assert_eq!(D64::ZERO.checked_div(D64::ONE), Some(D64::ZERO));
 
     // 1/3 truncates toward zero, *3 = 0.99999999
@@ -86,7 +89,10 @@ fn d64_bankers_rounding_ties() {
 
     // round_dp banker's rounding
     assert_eq!(D64::from_str("1.005").unwrap().round_dp(2).to_string(), "1");
-    assert_eq!(D64::from_str("1.015").unwrap().round_dp(2).to_string(), "1.02");
+    assert_eq!(
+        D64::from_str("1.015").unwrap().round_dp(2).to_string(),
+        "1.02"
+    );
 }
 
 // ===========================================================================
@@ -99,7 +105,10 @@ fn d64_parse_valid_forms() {
     assert_eq!(D64::from_str("-0").unwrap(), D64::ZERO);
     assert_eq!(D64::from_str("+1").unwrap(), D64::ONE);
     assert_eq!(D64::from_str("  1.5  ").unwrap().to_string(), "1.5");
-    assert_eq!(D64::from_str("000123.45000000").unwrap().to_string(), "123.45");
+    assert_eq!(
+        D64::from_str("000123.45000000").unwrap().to_string(),
+        "123.45"
+    );
     assert_eq!(D64::from_str("0.00000001").unwrap().to_raw(), 1);
 }
 
@@ -175,9 +184,15 @@ fn d64_display_forms() {
 fn d64_powi_recip() {
     assert_eq!(D64::from_i32(2).powi(0), Some(D64::ONE));
     assert_eq!(D64::from_i32(2).powi(10).unwrap().to_i64(), 1024);
-    assert_eq!(D64::from_i32(2).powi(-1).unwrap(), D64::from_str("0.5").unwrap());
+    assert_eq!(
+        D64::from_i32(2).powi(-1).unwrap(),
+        D64::from_str("0.5").unwrap()
+    );
     assert_eq!(D64::ZERO.recip(), None);
-    assert_eq!(D64::from_i32(4).recip().unwrap(), D64::from_str("0.25").unwrap());
+    assert_eq!(
+        D64::from_i32(4).recip().unwrap(),
+        D64::from_str("0.25").unwrap()
+    );
 }
 
 #[test]
@@ -216,17 +231,19 @@ fn d96_large_division_correct() {
     let num = D96::from_i64(1_000_000_000_000_000).unwrap(); // 1e15
     let den = D96::from_i64(20_000_000).unwrap(); // raw 2e19 >= 2^64
     assert_eq!(num.checked_div(den).unwrap().to_string(), "50000000");
-    assert_eq!(
-        D96::ONE.checked_div(den).unwrap().to_string(),
-        "0.00000005"
-    );
+    assert_eq!(D96::ONE.checked_div(den).unwrap().to_string(), "0.00000005");
 }
 
 #[test]
 fn d96_slow_path_mul() {
     // raw 2e19 >= 2^64 forces the 192-bit multiply path
     let a = D96::from_i64(20_000_000).unwrap();
-    assert_eq!(a.checked_mul(D96::from_i64(1_000).unwrap()).unwrap().to_string(), "20000000000");
+    assert_eq!(
+        a.checked_mul(D96::from_i64(1_000).unwrap())
+            .unwrap()
+            .to_string(),
+        "20000000000"
+    );
 }
 
 #[test]

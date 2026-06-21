@@ -42,7 +42,10 @@ fn d96_slice_byte_roundtrip() {
     // (it would smuggle out-of-96-bit values into D96 arithmetic). Read back
     // through the checked reader instead.
     for (i, &d) in v.iter().enumerate() {
-        assert_eq!(D96::try_read_ne_bytes(&bytes[i * 16..(i + 1) * 16]), Some(d));
+        assert_eq!(
+            D96::try_read_ne_bytes(&bytes[i * 16..(i + 1) * 16]),
+            Some(d)
+        );
     }
 }
 
@@ -103,7 +106,7 @@ fn struct_of_decimals_cast() {
     assert_eq!(back, &arr);
 }
 
-// Regression (Codex round 4): D96 is `NoUninit`, not `Pod`. The `bytemuck`
+// D96 is `NoUninit`, not `Pod`. The `bytemuck`
 // bytes->D96 direction (`from_bytes::<D96>` / `cast_slice::<u8, D96>`) does not
 // exist, so an out-of-96-bit pattern cannot be silently reinterpreted as a D96.
 // The only supported decode is the checked reader, which rejects it.

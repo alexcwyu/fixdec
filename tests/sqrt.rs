@@ -1,4 +1,4 @@
-//! Tests for the restored `D64::sqrt` / `D96::sqrt` (and the `try_*` twins).
+//! Tests for `D64::sqrt` / `D96::sqrt` and the `try_*` twins.
 //!
 //! Contract (floor / truncate, matching the crate's "arithmetic truncates"
 //! rule): `y = x.sqrt().unwrap()` is the largest representable value with
@@ -6,11 +6,10 @@
 //! invariant `y_raw^2 <= raw*SCALE < (y_raw + 1)^2` holds by construction.
 //! Negative inputs have no real root: `sqrt -> None`, `try_sqrt -> Err`.
 //!
-//! History: `D96::sqrt` was removed in f857a3d because it formed `raw * SCALE`
-//! in an i128, which overflows for any D96 value above ~1.7e14 (debug panic /
-//! release silent-wrap). The restored version uses a wide (192-bit) intermediate
-//! and a wide integer sqrt, so `D96::MAX.sqrt()` is now correct — that case is
-//! the headline regression test below.
+//! Regression target: D96 cannot form `raw * SCALE` in an `i128` for large valid
+//! values. The implementation uses a 192-bit intermediate so `D96::MAX.sqrt()`
+//! and nearby values satisfy the exact integer invariant instead of overflowing
+//! or wrapping.
 
 use fixdec::{D64, D96, DecimalError};
 use proptest::prelude::*;
@@ -78,8 +77,8 @@ fn d64_max_does_not_overflow() {
 // --- D96: the radicand `raw * 1e12` (< 2^135) and `(y+1)^2` (y < 2^68) both fit
 // a 192-bit value, so we assert the *exact* integer invariant across the whole
 // range using a small 192-bit oracle — no floats. This covers both the u128
-// fast path (small values) and the wide binary-search path (`raw*1e12 > 2^128`,
-// i.e. values above ~3.1e14). ---
+// fast path (small values) and the wide 192-bit path (`raw*1e12 > 2^128`,
+// i.e. values above ~3.4e14). ---
 
 /// `a * b` as a 192-bit value `(low, high)`, valid for `a, b < 2^96` (schoolbook
 /// 64-bit split; mirrors the crate's internal `mul_96x96_to_192`). Both the
@@ -155,7 +154,7 @@ fn d96_large_perfect_squares_hit_the_wide_path() {
 
 #[test]
 fn d96_sqrt_fast_wide_seam() {
-    // The high==0 (u128 fast path) vs high!=0 (192-bit binary search) seam sits
+    // The high==0 (u128 fast path) vs high!=0 (192-bit sqrt) seam sits
     // at raw = floor((2^128-1)/1e12); raw <= seam is fast, raw > seam is wide.
     // The root crosses a limb boundary here (2^64-1 on the fast side, 2^64 on
     // the wide side), so pin both sides deterministically with the exact oracle.
@@ -171,8 +170,14 @@ fn d96_sqrt_wide_off_by_one() {
     // the value one ULP below it: roots must be exactly 1e20 and 1e20 - 1, which
     // pins the wide-path off-by-one between consecutive integer roots.
     let sq: i128 = 10_000_000_000_000_000_000_000_000_000; // 1e28
-    assert_eq!(D96::from_raw(sq).sqrt().unwrap().to_raw(), 100_000_000_000_000_000_000); // 1e20
-    assert_eq!(D96::from_raw(sq - 1).sqrt().unwrap().to_raw(), 99_999_999_999_999_999_999);
+    assert_eq!(
+        D96::from_raw(sq).sqrt().unwrap().to_raw(),
+        100_000_000_000_000_000_000
+    ); // 1e20
+    assert_eq!(
+        D96::from_raw(sq - 1).sqrt().unwrap().to_raw(),
+        99_999_999_999_999_999_999
+    );
     d96_assert_invariant(sq);
     d96_assert_invariant(sq - 1);
 }

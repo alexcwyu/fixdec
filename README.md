@@ -409,8 +409,8 @@ D64::PERCENT              // 0.01 (1%)
 ```rust
 // Square root (truncated toward zero, like the other arithmetic ops):
 // the largest y with y*y <= x. Perfect squares are exact; negatives -> None.
-let r = D64::from_i32(9).sqrt();         // Some(3)
-let r = D64::from_i32(2).sqrt();         // Some(1.41421356)  (floored at 8dp)
+let r = D64::from_i32(9).sqrt();         // Some(D64(3))
+let r = D64::from_i32(2).sqrt();         // Some(D64(1.41421356))  (floored at 8dp)
 let r = D64::from_i32(-1).sqrt();        // None
 // y*y <= x < (y + ULP)*(y + ULP) holds by construction.
 

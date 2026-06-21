@@ -38,7 +38,11 @@ impl Rng {
         if w > 64 {
             bits |= (self.next_u64() as u128) << 64;
         }
-        let mask = if w >= 128 { u128::MAX } else { (1u128 << w) - 1 };
+        let mask = if w >= 128 {
+            u128::MAX
+        } else {
+            (1u128 << w) - 1
+        };
         let mag = (bits & mask) as i128;
         if self.next_u64() & 1 == 1 { -mag } else { mag }
     }
@@ -65,7 +69,11 @@ fn d64_to_dec(d: D64) -> Decimal {
 
 fn d64_mul_oracle(a: i64, b: i64) -> Option<i64> {
     let q = (a as i128 * b as i128) / D64::SCALE as i128;
-    if q > i64::MAX as i128 || q < i64::MIN as i128 { None } else { Some(q as i64) }
+    if q > i64::MAX as i128 || q < i64::MIN as i128 {
+        None
+    } else {
+        Some(q as i64)
+    }
 }
 
 fn d64_div_oracle(a: i64, b: i64) -> Option<i64> {
@@ -73,7 +81,11 @@ fn d64_div_oracle(a: i64, b: i64) -> Option<i64> {
         return None;
     }
     let q = (a as i128 * D64::SCALE as i128) / b as i128;
-    if q > i64::MAX as i128 || q < i64::MIN as i128 { None } else { Some(q as i64) }
+    if q > i64::MAX as i128 || q < i64::MIN as i128 {
+        None
+    } else {
+        Some(q as i64)
+    }
 }
 
 #[test]
@@ -117,7 +129,11 @@ fn differential_d64_vs_oracle_and_rust_decimal() {
         );
         if let (Some(r), Some(dm)) = (a.checked_mul(b), da.checked_mul(db)) {
             let truncated = dm.round_dp_with_strategy(8, RoundingStrategy::ToZero);
-            assert_eq!(d64_to_dec(r), truncated, "mul vs rust_decimal a={ar} b={br}");
+            assert_eq!(
+                d64_to_dec(r),
+                truncated,
+                "mul vs rust_decimal a={ar} b={br}"
+            );
         }
 
         // ---- div (exact truncation) ----

@@ -53,11 +53,15 @@ fn d96_rkyv_rejects_out_of_96bit_range() {
     // Serialize a valid D96, then overwrite the archived i128 with an out-of-range
     // raw value. The safe access + owned paths must both reject it.
     let mut bytes = rkyv::to_bytes::<Error>(&D96::ONE).unwrap();
-    assert_eq!(bytes.len(), 16, "a lone D96 archives to exactly its 16 LE bytes");
+    assert_eq!(
+        bytes.len(),
+        16,
+        "a lone D96 archives to exactly its 16 LE bytes"
+    );
 
     for bad in [
-        D96::MAX.to_raw() + 1,        // one past the 96-bit max
-        D96::MIN.to_raw() - 1,        // one past the 96-bit min
+        D96::MAX.to_raw() + 1, // one past the 96-bit max
+        D96::MIN.to_raw() - 1, // one past the 96-bit min
         i128::MAX,
         i128::MIN,
     ] {

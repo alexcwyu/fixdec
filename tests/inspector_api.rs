@@ -54,17 +54,35 @@ fn trailing_zeros_are_trimmed() {
     // 1.50 == 1.5 in fixed-point, so both decompose minimally to (15, 1).
     assert_eq!(D64::from_str("1.50").unwrap().mantissa(), 15);
     assert_eq!(D64::from_str("1.50").unwrap().scale(), 1);
-    assert_eq!(D64::from_str("3.100").unwrap(), D64::from_str("3.1").unwrap());
+    assert_eq!(
+        D64::from_str("3.100").unwrap(),
+        D64::from_str("3.1").unwrap()
+    );
     assert_eq!(D64::from_str("3.100").unwrap().mantissa(), 31);
     assert_eq!(D64::from_str("3.100").unwrap().scale(), 1);
 }
 
 #[test]
 fn scale_and_is_integer_are_consistent() {
-    for s in ["0", "1", "100", "1.5", "-2.5", "0.00000001", "92233720368.54775807"] {
+    for s in [
+        "0",
+        "1",
+        "100",
+        "1.5",
+        "-2.5",
+        "0.00000001",
+        "92233720368.54775807",
+    ] {
         let v = D64::from_str(s).unwrap();
-        assert!(v.scale() <= D64::DECIMALS as u32, "scale <= DECIMALS for {s}");
-        assert_eq!(v.is_integer(), v.scale() == 0, "is_integer == (scale==0) for {s}");
+        assert!(
+            v.scale() <= D64::DECIMALS as u32,
+            "scale <= DECIMALS for {s}"
+        );
+        assert_eq!(
+            v.is_integer(),
+            v.scale() == 0,
+            "is_integer == (scale==0) for {s}"
+        );
     }
 }
 
@@ -82,10 +100,16 @@ fn min_decomposition_does_not_panic_or_overflow() {
 #[test]
 fn normalize_is_identity() {
     // 1.5 and 1.50 are the same raw value, so normalize() returns self.
-    assert_eq!(D64::from_str("1.50").unwrap().normalize(), D64::from_str("1.5").unwrap());
+    assert_eq!(
+        D64::from_str("1.50").unwrap().normalize(),
+        D64::from_str("1.5").unwrap()
+    );
     assert_eq!(D64::ZERO.normalize(), D64::ZERO);
     assert_eq!(D64::MIN.normalize(), D64::MIN);
-    assert_eq!(D96::from_str("3.100").unwrap().normalize(), D96::from_str("3.1").unwrap());
+    assert_eq!(
+        D96::from_str("3.100").unwrap().normalize(),
+        D96::from_str("3.1").unwrap()
+    );
     assert_eq!(D96::MAX.normalize(), D96::MAX);
     const N: D64 = D64::from_raw(150_000_000).normalize();
     assert_eq!(N, D64::from_raw(150_000_000));
@@ -129,7 +153,11 @@ fn matches_rust_decimal_decomposition() {
     for s in ["0", "1", "1.5", "100", "0.00000001", "-2.5", "12345.6789"] {
         let v = D64::from_str(s).unwrap();
         let d = v.to_rust_decimal().normalize();
-        assert_eq!(v.mantissa() as i128, d.mantissa(), "mantissa vs rust_decimal for {s}");
+        assert_eq!(
+            v.mantissa() as i128,
+            d.mantissa(),
+            "mantissa vs rust_decimal for {s}"
+        );
         assert_eq!(v.scale(), d.scale(), "scale vs rust_decimal for {s}");
     }
 }

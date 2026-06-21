@@ -2853,15 +2853,12 @@ impl From<u8> for D64 {
 
 impl fmt::Display for D64 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Handle precision separately (not the hot path)
+        // Precision formatting pads or truncates to the requested scale.
         if let Some(precision) = f.precision() {
-            // ... keep the existing precision handling ...
             return self.fmt_with_precision(f, precision);
         }
 
-        // FAST PATH: Default formatting for JSON serialization
-
-        // Fast path for zero
+        // Default formatting trims trailing fractional zeros.
         if self.value == 0 {
             return f.write_str("0");
         }
@@ -5113,7 +5110,7 @@ mod fast_mul_property_tests {
     }
 
     proptest! {
-        // Full i64 range for both raw operands — the case the old test missed.
+        // Full i64 range for both raw operands.
         #[test]
         fn prop_mul_matches_exact_oracle(a in i64::MIN..=i64::MAX, b in i64::MIN..=i64::MAX) {
             let got = D64::from_raw(a).checked_mul(D64::from_raw(b)).map(D64::to_raw);
@@ -5176,7 +5173,7 @@ mod mul_regression_tests {
 
     #[test]
     fn test_mul_large_values_exact() {
-        // Under the old reciprocal division these were off by +4, +490 and
+        // Reciprocal division previously produced +4, +490, and
         // +1_225_804 respectively.
         assert_eq!(
             (D64::from_i32(100) * D64::from_i32(100)).to_raw(),
@@ -5245,7 +5242,7 @@ mod mul_regression_tests {
 
     #[test]
     fn test_to_basis_points_no_overflow() {
-        // 10_000_000.0 -> 100_000_000_000 bps. The old code overflowed i64 while
+        // 10_000_000.0 -> 100_000_000_000 bps. This used to overflow i64 while
         // computing `value * 10_000` for decimal values above ~9.2 million.
         let v = D64::from_i32(10_000_000);
         assert_eq!(v.to_basis_points(), 10_000_000i64 * 10_000);

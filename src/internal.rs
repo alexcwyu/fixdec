@@ -102,9 +102,17 @@ macro_rules! define_banker_round {
             } else if remainder < -half {
                 quotient - 1
             } else if remainder == half {
-                if quotient % 2 == 0 { quotient } else { quotient + 1 }
+                if quotient % 2 == 0 {
+                    quotient
+                } else {
+                    quotient + 1
+                }
             } else if remainder == -half {
-                if quotient % 2 == 0 { quotient } else { quotient - 1 }
+                if quotient % 2 == 0 {
+                    quotient
+                } else {
+                    quotient - 1
+                }
             } else {
                 quotient
             }

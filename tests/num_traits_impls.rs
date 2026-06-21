@@ -247,7 +247,10 @@ fn from_primitive_d96_rejects_out_of_range() {
     // it (contract), not Some(out-of-range value).
     assert_eq!(<D96 as FromPrimitive>::from_i64(i64::MAX), None);
     assert_eq!(<D96 as FromPrimitive>::from_u64(u64::MAX), None);
-    assert_eq!(<D96 as FromPrimitive>::from_i64(39_614_081_257_132_169), None);
+    assert_eq!(
+        <D96 as FromPrimitive>::from_i64(39_614_081_257_132_169),
+        None
+    );
     // The exact max integer part (and its negation) are still representable.
     assert!(<D96 as FromPrimitive>::from_i64(39_614_081_257_132_168).is_some());
     assert!(<D96 as FromPrimitive>::from_i64(-39_614_081_257_132_168).is_some());

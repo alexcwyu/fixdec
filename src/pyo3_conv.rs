@@ -95,14 +95,16 @@ impl<'py> FromPyObject<'py> for D64 {
         }
         if ob.is_instance_of::<PyFloat>() {
             let f: f64 = ob.extract()?;
-            return D64::from_f64(f)
-                .ok_or_else(|| PyValueError::new_err(format!("float {f} is not representable as D64")));
+            return D64::from_f64(f).ok_or_else(|| {
+                PyValueError::new_err(format!("float {f} is not representable as D64"))
+            });
         }
         if ob.is_instance_of::<PyInt>() {
             let i: i64 = ob
                 .extract()
                 .map_err(|_| PyValueError::new_err("integer out of D64 range"))?;
-            return D64::from_i64(i).ok_or_else(|| PyValueError::new_err("integer out of D64 range"));
+            return D64::from_i64(i)
+                .ok_or_else(|| PyValueError::new_err("integer out of D64 range"));
         }
         // Decimal or str: normalize to a fixed-point string, then parse exactly.
         // fixed_point_string fails (-> ValueError) for objects that are not
@@ -148,14 +150,16 @@ impl<'py> FromPyObject<'py> for D96 {
         }
         if ob.is_instance_of::<PyFloat>() {
             let f: f64 = ob.extract()?;
-            return D96::from_f64(f)
-                .ok_or_else(|| PyValueError::new_err(format!("float {f} is not representable as D96")));
+            return D96::from_f64(f).ok_or_else(|| {
+                PyValueError::new_err(format!("float {f} is not representable as D96"))
+            });
         }
         if ob.is_instance_of::<PyInt>() {
             let i: i128 = ob
                 .extract()
                 .map_err(|_| PyValueError::new_err("integer out of D96 range"))?;
-            return D96::from_i128(i).ok_or_else(|| PyValueError::new_err("integer out of D96 range"));
+            return D96::from_i128(i)
+                .ok_or_else(|| PyValueError::new_err("integer out of D96 range"));
         }
         // Decimal or str: normalize to a fixed-point string, then parse exactly.
         // fixed_point_string fails (-> ValueError) for objects that are not

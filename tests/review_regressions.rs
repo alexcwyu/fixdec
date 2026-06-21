@@ -15,7 +15,10 @@ use fixdec::{D64, D96, DecimalError};
 fn d64_from_f64_rejects_above_max() {
     // True D64::MAX ≈ 92233720368.54775807. Inputs above it must be None / Overflow.
     assert_eq!(D64::from_f64(92_233_720_369.0), None);
-    assert_eq!(D64::try_from_f64(92_233_720_369.0), Err(DecimalError::Overflow));
+    assert_eq!(
+        D64::try_from_f64(92_233_720_369.0),
+        Err(DecimalError::Overflow)
+    );
     // Just-above-max from the finding's repro.
     assert_eq!(D64::from_f64(92_233_720_368.547_76), None);
 }
@@ -33,7 +36,10 @@ fn d64_from_f64_rejects_below_min() {
 fn d64_from_f64_accepts_in_range() {
     assert!(D64::from_f64(92_233_720_368.0).is_some());
     assert_eq!(D64::from_f64(2.5), Some(D64::from_str("2.5").unwrap()));
-    assert_eq!(D64::try_from_f64(-1.25), Ok(D64::from_str("-1.25").unwrap()));
+    assert_eq!(
+        D64::try_from_f64(-1.25),
+        Ok(D64::from_str("-1.25").unwrap())
+    );
 }
 
 // ============================================================================
@@ -111,7 +117,10 @@ fn d96_wrapping_neg_abs_stay_in_range() {
 fn d96_wrapping_add_sub_wrap_into_range() {
     let ulp = D96::from_raw(1);
     let r = D96::MAX.wrapping_add(ulp);
-    assert!(D96::from_raw_checked(r.to_raw()).is_some(), "wrap stays valid");
+    assert!(
+        D96::from_raw_checked(r.to_raw()).is_some(),
+        "wrap stays valid"
+    );
     assert_eq!(r, D96::MIN); // MAX + 1 wraps to MIN
     let r2 = D96::MIN.wrapping_sub(ulp);
     assert_eq!(r2, D96::MAX); // MIN - 1 wraps to MAX
@@ -136,17 +145,29 @@ fn d96_with_scale_rejects_out_of_range() {
 #[test]
 fn d64_round_ceil_saturate_near_max() {
     let r = D64::MAX.round();
-    assert!(r > D64::ZERO && r <= D64::MAX, "round(MAX) stays valid positive");
+    assert!(
+        r > D64::ZERO && r <= D64::MAX,
+        "round(MAX) stays valid positive"
+    );
     let c = D64::MAX.ceil();
-    assert!(c > D64::ZERO && c <= D64::MAX, "ceil(MAX) stays valid positive");
+    assert!(
+        c > D64::ZERO && c <= D64::MAX,
+        "ceil(MAX) stays valid positive"
+    );
     let rd = D64::MAX.round_dp(0);
-    assert!(rd > D64::ZERO && rd <= D64::MAX, "round_dp(MAX,0) stays valid");
+    assert!(
+        rd > D64::ZERO && rd <= D64::MAX,
+        "round_dp(MAX,0) stays valid"
+    );
 }
 
 #[test]
 fn d64_floor_saturates_near_min() {
     let f = D64::MIN.floor();
-    assert!(f < D64::ZERO && f >= D64::MIN, "floor(MIN) stays valid negative");
+    assert!(
+        f < D64::ZERO && f >= D64::MIN,
+        "floor(MIN) stays valid negative"
+    );
 }
 
 #[test]
@@ -224,24 +245,42 @@ fn d64_rem_min_by_neg_ulp_panics() {
 
 #[test]
 fn d64_with_scale_lossy_rounds_not_truncates() {
-    // scale_diff = 8 triggers the old truncating pre-loop.
-    assert_eq!(D64::try_with_scale_lossy(995_284_399, 16), Some(D64::from_raw(10))); // 9.95.. -> 10
+    // scale_diff = 8 exercises the truncating pre-loop regression case.
+    assert_eq!(
+        D64::try_with_scale_lossy(995_284_399, 16),
+        Some(D64::from_raw(10))
+    ); // 9.95.. -> 10
     assert_eq!(D64::with_scale_lossy(995_284_399, 16), D64::from_raw(10));
-    assert_eq!(D64::try_with_scale_lossy(940_000_000, 16), Some(D64::from_raw(9))); // 9.4 -> 9
-    assert_eq!(D64::try_with_scale_lossy(950_000_000, 16), Some(D64::from_raw(10))); // 9.5 tie -> even 10
-    assert_eq!(D64::try_with_scale_lossy(850_000_000, 16), Some(D64::from_raw(8))); // 8.5 tie -> even 8
-    assert_eq!(D64::try_with_scale_lossy(-995_284_399, 16), Some(D64::from_raw(-10)));
+    assert_eq!(
+        D64::try_with_scale_lossy(940_000_000, 16),
+        Some(D64::from_raw(9))
+    ); // 9.4 -> 9
+    assert_eq!(
+        D64::try_with_scale_lossy(950_000_000, 16),
+        Some(D64::from_raw(10))
+    ); // 9.5 tie -> even 10
+    assert_eq!(
+        D64::try_with_scale_lossy(850_000_000, 16),
+        Some(D64::from_raw(8))
+    ); // 8.5 tie -> even 8
+    assert_eq!(
+        D64::try_with_scale_lossy(-995_284_399, 16),
+        Some(D64::from_raw(-10))
+    );
     assert_eq!(D64::try_with_scale_lossy(1, 50), Some(D64::ZERO)); // huge scale -> 0
 }
 
 #[test]
 fn d96_with_scale_lossy_rounds_not_truncates() {
-    // scale_diff = 12 triggers the old truncating pre-loop.
+    // scale_diff = 12 exercises the truncating pre-loop regression case.
     assert_eq!(
         D96::try_with_scale_lossy(9_952_843_958_502, 24),
         Some(D96::from_raw(10))
     ); // 9.95.. -> 10
-    assert_eq!(D96::with_scale_lossy(9_952_843_958_502, 24), D96::from_raw(10));
+    assert_eq!(
+        D96::with_scale_lossy(9_952_843_958_502, 24),
+        D96::from_raw(10)
+    );
     assert_eq!(
         D96::try_with_scale_lossy(1_500_000_000_001, 24),
         Some(D96::from_raw(2))
@@ -282,7 +321,9 @@ fn with_scale_lossy_matches_oracle_fuzz() {
     // splitmix64-ish LCG for deterministic pseudo-random cases.
     let mut state: u64 = 0x9E3779B97F4A7C15;
     let mut next = || {
-        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         state
     };
     for _ in 0..20_000 {
@@ -319,8 +360,14 @@ mod serde_numbers {
     #[test]
     fn d64_accepts_json_integers_and_strings() {
         // Integer JSON numbers are exact (D64's integer range fits i64/u64).
-        assert_eq!(serde_json::from_str::<D64>("42").unwrap(), D64::from_i32(42));
-        assert_eq!(serde_json::from_str::<D64>("-7").unwrap(), D64::from_i32(-7));
+        assert_eq!(
+            serde_json::from_str::<D64>("42").unwrap(),
+            D64::from_i32(42)
+        );
+        assert_eq!(
+            serde_json::from_str::<D64>("-7").unwrap(),
+            D64::from_i32(-7)
+        );
         // Fractional decimals arrive as quoted strings (exact).
         assert_eq!(
             serde_json::from_str::<D64>("\"42.5\"").unwrap(),
@@ -334,8 +381,14 @@ mod serde_numbers {
     fn d96_accepts_json_integers_and_strings() {
         // D96's integer range (~±3.96e16) is well within i64/u64, so every
         // in-range integer arrives exactly through the integer visitors.
-        assert_eq!(serde_json::from_str::<D96>("42").unwrap(), D96::from_i32(42));
-        assert_eq!(serde_json::from_str::<D96>("-7").unwrap(), D96::from_i32(-7));
+        assert_eq!(
+            serde_json::from_str::<D96>("42").unwrap(),
+            D96::from_i32(42)
+        );
+        assert_eq!(
+            serde_json::from_str::<D96>("-7").unwrap(),
+            D96::from_i32(-7)
+        );
         assert_eq!(
             serde_json::from_str::<D96>("\"42.5\"").unwrap(),
             D96::from_str("42.5").unwrap()
@@ -351,17 +404,17 @@ mod serde_numbers {
         assert_eq!(serde_json::from_str::<D64>(&json).unwrap(), v);
     }
 
-    // [Codex round 5] A bare JSON floating-point number must NOT silently round
+    // A bare JSON floating-point number must not silently round
     // through `from_f64` and bypass the exact precision check the string path
     // enforces. The string form rejects over-precision as PrecisionLoss, so the
     // equivalent bare-number form must reject it too — never deserialize to a
     // DIFFERENT value than the text denotes.
     #[test]
     fn json_floats_are_rejected_not_silently_rounded() {
-        // String path rejects over-precise input (9th/13th dp)...
+        // String path rejects over-precise input (9th/13th dp).
         assert!(serde_json::from_str::<D64>("\"0.1000000009\"").is_err());
         assert!(serde_json::from_str::<D96>("\"0.1000000000009\"").is_err());
-        // ...so the bare-number path must reject it too (not round to 0.1).
+        // The bare-number path must reject it too, rather than round to 0.1.
         assert!(serde_json::from_str::<D64>("0.1000000009").is_err());
         assert!(serde_json::from_str::<D96>("0.1000000000009").is_err());
         // Any float token is refused — even an exactly-representable decimal must
@@ -372,13 +425,25 @@ mod serde_numbers {
             "1.0", "100.0", "-1.0", // integer-VALUED floats are still float tokens -> refused
             "1e2", "1E2", "1.0e2", "1.5e1", "2.5e-3", // exponent/scientific tokens
         ] {
-            assert!(serde_json::from_str::<D64>(tok).is_err(), "D64 must reject bare float {tok}");
-            assert!(serde_json::from_str::<D96>(tok).is_err(), "D96 must reject bare float {tok}");
+            assert!(
+                serde_json::from_str::<D64>(tok).is_err(),
+                "D64 must reject bare float {tok}"
+            );
+            assert!(
+                serde_json::from_str::<D96>(tok).is_err(),
+                "D96 must reject bare float {tok}"
+            );
         }
         // Integers (exact) and quoted strings (exact, incl. scientific) remain
         // accepted — this pins the other half of the token-shape policy.
-        assert_eq!(serde_json::from_str::<D64>("42").unwrap(), D64::from_i32(42));
-        assert_eq!(serde_json::from_str::<D96>("-7").unwrap(), D96::from_i32(-7));
+        assert_eq!(
+            serde_json::from_str::<D64>("42").unwrap(),
+            D64::from_i32(42)
+        );
+        assert_eq!(
+            serde_json::from_str::<D96>("-7").unwrap(),
+            D96::from_i32(-7)
+        );
         assert_eq!(
             serde_json::from_str::<D64>("\"42.5\"").unwrap(),
             D64::from_str("42.5").unwrap()
@@ -395,4 +460,3 @@ mod serde_numbers {
 
     use core::str::FromStr;
 }
-

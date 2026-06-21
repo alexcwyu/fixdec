@@ -1,17 +1,12 @@
-//! Regression tests for Codex adversarial review round 6 (2026-06-19).
+//! Regression tests for arithmetic and constructor boundary fixes.
 //!
-//! Findings (all reproduced before fixing):
-//!   #2 powi(i32::MIN) overflowed `-exp` -> debug panic / release stack overflow.
-//!   #3 D64::from_basis_points rejected representable large inputs (early overflow).
-//!   #4 new(int, frac) silently accepted an out-of-domain fractional part.
+//! Each test pins an edge case that previously either overflowed too early,
+//! accepted invalid constructor input, or failed to preserve D64/D96 parity.
 
 use core::str::FromStr;
 use fixdec::{D64, D96};
 
-// [#2] `powi` negated `-exp` for negative exponents; for `i32::MIN` that overflows
-// i32 (debug: "attempt to negate with overflow"; release: wraps back to i32::MIN
-// and recurses forever -> stack overflow). It must compute via the unsigned
-// magnitude (`i32::MIN.unsigned_abs()` is exact) and return a value with no panic.
+// `powi` must handle `i32::MIN` without negating the exponent in `i32`.
 #[test]
 fn powi_i32_min_does_not_panic() {
     // |base| > 1: squaring overflows long before 2^2147483648 -> None.
@@ -41,21 +36,25 @@ fn powi_i32_min_does_not_panic() {
     assert_eq!(neg_one_96.powi(i32::MIN + 1), Some(neg_one_96));
 }
 
-// [#3] `from_basis_points` multiplied by the FULL scale before dividing by 10_000,
-// overflowing far earlier than the final raw value would. Since `SCALE / 10_000`
-// is exact, multiplying by that smaller factor accepts the full representable
-// range without changing any in-range result.
+// `from_basis_points` multiplies by `SCALE / 10_000`, not by `SCALE` followed by
+// division, so representable large basis-point values do not overflow early.
 #[test]
 fn from_basis_points_accepts_representable_large_inputs() {
-    // 1e11 bps == 10_000_000.0; raw 1e15 fits i64, but the old D64 code returned None.
+    // 1e11 bps == 10_000_000.0; raw 1e15 fits i64.
     assert_eq!(
         D64::from_basis_points(100_000_000_000),
         Some(D64::from_i32(10_000_000))
     );
     // Existing small cases are unchanged.
-    assert_eq!(D64::from_basis_points(100), Some(D64::from_str("0.01").unwrap()));
+    assert_eq!(
+        D64::from_basis_points(100),
+        Some(D64::from_str("0.01").unwrap())
+    );
     assert_eq!(D64::from_basis_points(0), Some(D64::ZERO));
-    assert_eq!(D64::from_basis_points(-100), Some(D64::from_str("-0.01").unwrap()));
+    assert_eq!(
+        D64::from_basis_points(-100),
+        Some(D64::from_str("-0.01").unwrap())
+    );
     // Boundary: largest representable raw (= i64::MAX rounded down to a 1e4 step),
     // and one basis point past it.
     assert!(D64::from_basis_points(922_337_203_685_477).is_some());
@@ -65,14 +64,17 @@ fn from_basis_points_accepts_representable_large_inputs() {
         D96::from_basis_points(100_000_000_000),
         Some(D96::from_i32(10_000_000))
     );
-    assert_eq!(D96::from_basis_points(100), Some(D96::from_str("0.01").unwrap()));
+    assert_eq!(
+        D96::from_basis_points(100),
+        Some(D96::from_str("0.01").unwrap())
+    );
     // D96's distinct 96-bit range-check boundary: the largest in-range bps (raw =
     // MAX rounded down to a 1e8 step) accepts, one basis point past it rejects.
     assert!(D96::from_basis_points(396_140_812_571_321_687_967).is_some());
     assert!(D96::from_basis_points(396_140_812_571_321_687_968).is_none());
 }
 
-// [perf] D96 checked_div gained a u128 fast path that must be BIT-IDENTICAL to the
+// D96 checked_div has a u128 fast path that must be bit-identical to the
 // 192-bit wide path. `big` (raw < u128::MAX/SCALE) takes the fast div path; `huge`
 // (raw above that) takes the wide path. checked_mul keeps its both-small fast path
 // (the asymmetric large x small case stays on the wide mul path — extending it
@@ -82,7 +84,13 @@ fn from_basis_points_accepts_representable_large_inputs() {
 fn d96_div_mul_fast_paths_match_wide_path() {
     let big = D96::from_str("35000000000").unwrap(); // value 3.5e10, raw 3.5e22 (fast div)
     let huge = D96::from_str("35000000000000000").unwrap(); // value 3.5e16, raw 3.5e28 (wide div)
-    for v in [D96::ONE, D96::from_str("123.456789").unwrap(), big, huge, D96::MAX] {
+    for v in [
+        D96::ONE,
+        D96::from_str("123.456789").unwrap(),
+        big,
+        huge,
+        D96::MAX,
+    ] {
         assert_eq!(v.checked_div(D96::ONE), Some(v), "v / 1 == v");
         assert_eq!(v.checked_div(v), Some(D96::ONE), "v / v == 1");
         assert_eq!(v.checked_mul(D96::ONE), Some(v), "v * 1 == v");
@@ -95,7 +103,9 @@ fn d96_div_mul_fast_paths_match_wide_path() {
     );
     // Concrete truncated division (10 / 3 to 12 dp).
     assert_eq!(
-        D96::from_str("10").unwrap().checked_div(D96::from_str("3").unwrap()),
+        D96::from_str("10")
+            .unwrap()
+            .checked_div(D96::from_str("3").unwrap()),
         Some(D96::from_str("3.333333333333").unwrap())
     );
 }
@@ -112,7 +122,10 @@ fn new_accepts_valid_fractional() {
     assert_eq!(D64::new(0, 0), D64::ZERO);
     assert_eq!(D64::new(1, D64::SCALE - 1), D64::from_raw(199_999_999));
     assert_eq!(D96::new(2, 500_000_000_000), D96::from_str("2.5").unwrap());
-    assert_eq!(D96::new(1, D96::SCALE - 1), D96::from_raw(1_999_999_999_999));
+    assert_eq!(
+        D96::new(1, D96::SCALE - 1),
+        D96::from_raw(1_999_999_999_999)
+    );
 }
 
 #[test]
