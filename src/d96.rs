@@ -3269,12 +3269,14 @@ impl Div for D96 {
 impl Rem for D96 {
     type Output = Self;
 
-    /// Remainder. Panics if `rhs` is zero (like integer `%`).
+    /// Remainder. Panics if `rhs` is zero (like the built-in integer `%`).
+    /// Routes through [`checked_rem`](Self::checked_rem) for consistency with the
+    /// other operators (and with `is_multiple_of`/`div_rem`). D96's `MIN` is
+    /// `-2^95`, so `%` itself cannot overflow, but this keeps the twins identical.
     #[inline(always)]
     fn rem(self, rhs: Self) -> Self::Output {
-        Self {
-            value: self.value % rhs.value,
-        }
+        self.checked_rem(rhs)
+            .expect("attempt to calculate the remainder with overflow or by zero")
     }
 }
 
