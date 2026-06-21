@@ -396,6 +396,12 @@ fn d96_from_str_scientific() {
     );
     assert!(D96::from_str("1e-13").is_err()); // 13 dp -> PrecisionLoss
     assert!(D96::from_str("1e999").is_err()); // overflow
+    // exponent-driven VALUE overflow on the wide type (D64 pins its MAX twin at
+    // 9.223372036854775807e10; this covers the equivalent path for D96).
+    assert!(D96::from_str("4e16").is_err()); // 4e16 > D96 max (~3.96e16)
+    assert!(D96::from_str("1e17").is_err());
+    // a large in-range value is still reachable via scientific notation
+    assert_eq!(D96::from_str("3.9e16").unwrap(), d96("39000000000000000"));
 }
 
 #[test]

@@ -397,6 +397,24 @@ mod serde_numbers {
     }
 
     #[test]
+    fn out_of_range_json_integers_are_rejected_not_wrapped() {
+        // Integers that fit i64/u64 but exceed the type's value range must be
+        // rejected by the integer visitor's range guard, never silently wrapped.
+        // D64's max integer part is ~9.2e10:
+        assert!(serde_json::from_str::<D64>("100000000000").is_err()); // 1e11 > D64 max
+        // D96's max integer part is ~3.96e16 (well within i64/u64):
+        assert!(serde_json::from_str::<D96>("40000000000000000").is_err()); // 4e16 > D96 max
+        // Integers past u64 arrive as JSON floats and are refused on the float path:
+        assert!(serde_json::from_str::<D96>("99999999999999999999").is_err());
+        // A representative in-range integer still round-trips exactly (the guard
+        // is not over-eager).
+        assert_eq!(
+            serde_json::from_str::<D96>("39614081257132").unwrap(),
+            D96::from_i64(39614081257132).unwrap()
+        );
+    }
+
+    #[test]
     fn round_trips_via_string_form() {
         let v = D64::from_str("1234.56789").unwrap();
         let json = serde_json::to_string(&v).unwrap();
