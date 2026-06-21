@@ -41,6 +41,23 @@ jobs:
       - run: cargo check --all-features
       - run: cargo check --benches --all-features
 
+  no-std:
+    runs-on: ubuntu-latest
+    name: no_std (bare-metal build, each no_std feature)
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup target add thumbv7em-none-eabi
+      # Build each no_std-capable feature against a real bare-metal target so a
+      # dependency silently pulling `std` (e.g. serde without default-features=false)
+      # fails CI instead of only the host build that always has std.
+      - run: cargo build --no-default-features --target thumbv7em-none-eabi
+      - run: cargo build --no-default-features --features serde --target thumbv7em-none-eabi
+      - run: cargo build --no-default-features --features bytemuck --target thumbv7em-none-eabi
+      - run: cargo build --no-default-features --features zerocopy --target thumbv7em-none-eabi
+      - run: cargo build --no-default-features --features num-traits --target thumbv7em-none-eabi
+      - run: cargo build --no-default-features --features rust-decimal --target thumbv7em-none-eabi
+      - run: cargo build --no-default-features --features rkyv --target thumbv7em-none-eabi
+
   differential:
     runs-on: ubuntu-latest
     name: differential (release, 1M iters)

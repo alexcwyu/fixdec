@@ -20,7 +20,11 @@ exclude = [
 ]
 
 [dependencies]
-serde = { version = "1.0.228", optional = true }
+# default-features = false drops serde's `std` feature so the `serde` feature
+# stays no_std. We enable serde's `alloc` feature because the Deserialize visitor
+# implements `visit_string` (an alloc-gated member of `de::Visitor`); the crate
+# also re-adds its own `alloc` in the feature table below.
+serde = { version = "1.0.228", optional = true, default-features = false, features = ["alloc"] }
 bytemuck = { version = "1", optional = true, default-features = false }
 zerocopy = { version = "0.8", optional = true, default-features = false, features = ["derive"] }
 num-traits = { version = "0.2", optional = true, default-features = false }

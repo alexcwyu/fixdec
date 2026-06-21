@@ -3706,7 +3706,11 @@ impl Serialize for D96 {
             // JSON, TOML, etc. - use string representation
             serializer.collect_str(self)
         } else {
-            // Bincode, MessagePack, etc. - serialize raw i128
+            // Bincode, MessagePack, etc. - serialize the raw i128 mantissa.
+            // NOTE: the binary form is the BARE mantissa with no scale or type
+            // tag, so it is not self-describing: a D96 blob read back as a D64
+            // (or read after DECIMALS/SCALE ever changes) silently mis-scales by
+            // a power of ten. Callers must guarantee a matching type + version.
             self.value.serialize(serializer)
         }
     }

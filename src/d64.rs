@@ -3004,7 +3004,11 @@ impl Serialize for D64 {
             // Use collect_str to avoid allocation!
             serializer.collect_str(self)
         } else {
-            // Bincode, MessagePack, etc. - serialize raw i64
+            // Bincode, MessagePack, etc. - serialize the raw i64 mantissa.
+            // NOTE: the binary form is the BARE mantissa with no scale or type
+            // tag, so it is not self-describing: a D64 blob read back as a D96
+            // (or read after DECIMALS/SCALE ever changes) silently mis-scales by
+            // a power of ten. Callers must guarantee a matching type + version.
             self.value.serialize(serializer)
         }
     }
