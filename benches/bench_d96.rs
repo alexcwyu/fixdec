@@ -226,7 +226,7 @@ fn bench_sqrt(c: &mut Criterion) {
 
 fn bench_sqrt_wide(c: &mut Criterion) {
     // Large value (> ~3.4e14): radicand exceeds 2^128 -> the 192-bit
-    // binary-search path. This is the worst case for D96::sqrt.
+    // shift-scale-correct path (isqrt_192). This is the worst case for D96::sqrt.
     c.bench_function("d96_sqrt_wide", |b| {
         let d = D96::from_str("1234567890123456.789012").unwrap();
         b.iter(|| black_box(black_box(d).sqrt().unwrap()));

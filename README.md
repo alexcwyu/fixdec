@@ -112,10 +112,13 @@ let tx_value = D96::from_str("0.00000001")?;   // 1 satoshi equivalent
 - **Crypto constants**: Satoshi, gwei, microGwei for blockchain applications
 
 ### Optimizations
-- **Reciprocal multiplication**: Uses "magic division" with precomputed constants
+- **Exact native division**: dividing by the constant scale lowers to a
+  multiply-shift the compiler proves exact (no hand-rolled reciprocal); the wide
+  D96 path takes a u128 fast path when the dividend fits
 - **Fast string parsing**: SWAR (SIMD Within A Register) techniques
 - **Branchless validation**: Optimized digit checking
-- **Binary serialization**: Raw integer encoding for minimal overhead
+- **Binary serialization**: raw integer encoding for minimal overhead (untagged —
+  see the zero-copy / serde notes on type + version coupling)
 
 ### Platform Support
 - **`no_std` compatible**: Works in embedded systems and WebAssembly
@@ -192,10 +195,11 @@ feature is `std`-only (PyO3 links libpython), so it is not part of `full`.
 
 ### Zero-copy (bytemuck / zerocopy)
 
-Both `D64` and `D96` are `#[repr(transparent)]` plain-old-data, so with the
-`bytemuck` or `zerocopy` feature you can reinterpret raw byte buffers as decimals
-with **no parsing and no allocation** — ideal for binary market-data feeds and
-memory-mapped tick stores:
+`D64` is `#[repr(transparent)]` plain-old-data, so with the `bytemuck` or
+`zerocopy` feature you can reinterpret raw byte buffers as `D64` values with **no
+parsing and no allocation** — ideal for binary market-data feeds and memory-mapped
+tick stores. `D96` exposes only the *value → bytes* direction (it cannot safely
+reinterpret arbitrary bytes; see the note below):
 
 ```rust
 // with features = ["bytemuck"]
@@ -614,7 +618,7 @@ These rules hold for both `D64` and `D96` and are the stable contract the API is
 ## Safety and Correctness
 
 - **Overflow behavior**: All arithmetic operations have `checked`, `saturating`, and `wrapping` variants
-- **Minimal unsafe**: Safe Rust throughout the core; the only `unsafe` is the feature-gated `bytemuck` `Pod`/`NoUninit`/`Zeroable` impls (sound via `#[repr(transparent)]`)
+- **Minimal unsafe**: Safe Rust throughout the core; the only hand-written `unsafe` is in feature-gated impls — the `bytemuck` `Pod`/`NoUninit`/`Zeroable` impls (sound via `#[repr(transparent)]`) and the `rkyv` `bytecheck::Verify` impl for `ArchivedD96` (which enforces the 96-bit range on validated access)
 - **Extensive testing**: Property-based tests with `proptest` verify correctness against baseline implementations
 - **Banker's rounding**: IEEE 754 round-half-to-even for tie-breaking
 

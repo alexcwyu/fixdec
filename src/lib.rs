@@ -8,7 +8,7 @@
 //!   - Use cases: Traditional finance, USD/EUR pricing, portfolio P&L
 //!
 //! - **`D96`**: 96-bit with 12 decimal places
-//!   - Range: ±39,614,081,257,132.168796771975 (±39 trillion)
+//!   - Range: ±39,614,081,257,132,168.796771975167 (±39.6 quadrillion)
 //!   - Precision: 0.000000000001 (1 microGwei)
 //!   - Use cases: Cryptocurrency, high-precision DeFi, extreme price ranges
 //!

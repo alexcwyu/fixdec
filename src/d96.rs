@@ -17,7 +17,7 @@ use crate::{D64, DecimalError, RoundingStrategy};
 /// 96-bit fixed-point decimal with 12 decimal places of precision.
 ///
 /// Uses 128-bit storage but only uses 96 bits of the mantissa for faster arithmetic.
-/// Range: ±39,614,081,257,132.168796771975167
+/// Range: ±39,614,081,257,132,168.796771975167 (±39.6 quadrillion)
 /// Precision: 0.000000000001 (1 microGwei = 1000 wei)
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 // NOTE: `FromBytes` is intentionally NOT derived (unlike `D64`). `FromBytes`
@@ -102,7 +102,7 @@ impl D96 {
     pub const DECIMALS: u8 = 12;
 
     /// Maximum 96-bit value: 2^95 - 1
-    /// Range: ±39.6 trillion with 12 decimals
+    /// Range: ±39.6 quadrillion with 12 decimals
     pub const MAX: Self = Self {
         value: 39_614_081_257_132_168_796_771_975_167,
     };
@@ -2994,7 +2994,7 @@ impl D96 {
     /// Parse from byte slice
     pub fn from_utf8_bytes(bytes: &[u8]) -> crate::Result<Self> {
         let s = core::str::from_utf8(bytes).map_err(|_| DecimalError::InvalidFormat)?;
-        Self::from_str_exact(s) // ✅ This will check bounds
+        Self::from_str_exact(s) // from_str_exact range-checks the 96-bit bound
     }
 
     /// Read D96 from little-endian bytes
@@ -3855,12 +3855,12 @@ unsafe impl bytemuck::NoUninit for D96 {}
 // `Float`/`Real`/`Integer` are intentionally NOT implemented (D96 is not a
 // field and has no fractional reciprocal closure).
 //
-// Note vs D64: `FromPrimitive::from_i64`/`from_u64` here range-check against
-// D96's ~±3.96e16 integer range and return `None` when exceeded (the inherent
-// `D96::from_i64`/`from_u64` do NOT range-check — see their docs). `to_i64`
-// returns `Option` for signature symmetry, but since D96's integer part is
-// bounded by ~3.96e16 < i64::MAX it never actually returns `None` for an
-// in-range value.
+// Note: `FromPrimitive::from_i64`/`from_u64` delegate to the inherent
+// `D96::from_i64`/`from_u64`, which range-check against D96's ~±3.96e16 integer
+// range and return `None` when exceeded (matching D64 — no out-of-96-bit value
+// can be minted). `to_i64` returns `Option` for signature symmetry, but since
+// D96's integer part is bounded by ~3.96e16 < i64::MAX it never actually returns
+// `None` for an in-range value.
 
 #[cfg(feature = "num-traits")]
 impl num_traits::Zero for D96 {
@@ -4488,9 +4488,8 @@ mod conversion_tests {
         let d = D96::from_raw(42_000_000_000_000); // 42.0
         assert_eq!(d.to_i64(), Some(42));
 
-        // D96's maximum integer part is ~39 trillion
-        // This always fits in i64 (which can hold up to ~9 quintillion)
-        // So to_i64() should always succeed for valid D96 values
+        // D96's maximum integer part is ~39.6 quadrillion, which still fits in
+        // i64 (max ~9.2 quintillion), so to_i64() always succeeds for a valid D96.
         let large = D96::from_str_exact("39614081257132").unwrap(); // ~39.6 trillion
         assert_eq!(large.to_i64(), Some(39614081257132));
 
