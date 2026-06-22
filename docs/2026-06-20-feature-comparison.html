@@ -122,7 +122,7 @@
   <p class="legend">Legend: <span class="yes">✓</span> first-class &nbsp; <span class="par">◐</span> partial / via companion crate / with caveats &nbsp; <span class="no">✗</span> absent. Footnote markers link to the notes under each table.</p>
 
   <h2>At-a-glance positioning</h2>
-  <p>Condensed per-type trade-off. Originated in an OpenAI Codex review and independently re-verified against each crate's documentation on 2026-06-20 — every cell checked accurate, peer strengths credited rather than strawmanned.</p>
+  <p>Condensed per-type trade-off. Re-verified against each crate's documentation on 2026-06-20, with peer strengths credited directly and binary-vs-decimal semantics kept separate.</p>
   <table>
     <thead><tr><th>Type</th><th>Best use case</th><th>Strength</th><th>Caveat</th></tr></thead>
     <tbody>
@@ -266,7 +266,7 @@
 
   <h3>3.1 Truncation, not banker's rounding, in <code>×</code> and <code>÷</code></h3>
   <p>
-    fixdec multiply/divide <strong>truncate the sub-scale remainder toward zero</strong>. This is fast, deterministic, and consistent — but it is a real semantic difference from rust_decimal, which rounds half-even inside multiply. For example a product whose exact value is <code>…·xated.5</code> at the last representable digit lands one ulp lower in fixdec than in rust_decimal. Neither is "wrong", but a system mixing the two must pick one as the source of truth. <strong>This behaviour is currently undocumented in the public API and should be.</strong>
+    fixdec multiply/divide <strong>truncate the sub-scale remainder toward zero</strong>. This is fast, deterministic, and consistent — but it is a real semantic difference from rust_decimal, which rounds half-even inside multiply. For example, a product whose exact value lands exactly halfway at the last representable digit can be one ulp lower in fixdec than in rust_decimal. Neither is wrong, but a system mixing the two must pick one as the source of truth. This behaviour is documented in the README semantic contract.
   </p>
 
   <h3>3.2 <code>percent_of</code> / <code>add_percent</code> double-truncate</h3>

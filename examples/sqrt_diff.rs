@@ -9,7 +9,7 @@
 //!      bug. Expected count: 0.
 //!   2. **rust_decimal** (`MathematicalOps::sqrt`, ~28 significant digits): the
 //!      floored result must sit in `[y, y + ULP)`. Reported as max deviation
-//!      (should be < 1 ULP) and a violation count (expected 0).
+//!      and a violation count. Any value outside `[y, y + ULP)` is reported.
 //!   3. **f64** hardware `sqrt`: reported as max absolute / relative deviation
 //!      (f64 loses precision converting large inputs, so this is a sanity band,
 //!      not a hard bound).
@@ -54,7 +54,7 @@ impl Rng {
     }
     /// Non-negative i128 raw of a random bit-width, clamped to D96 max. Widths
     /// span the u128 fast path (`raw*1e12 < 2^128`, i.e. < ~2^88) and the wide
-    /// binary-search path (>= ~2^88), incl. values right at MAX.
+    /// 192-bit sqrt path (>= ~2^88), including values right at MAX.
     #[inline]
     fn d96_raw(&mut self) -> i128 {
         const W: [u32; 11] = [1, 4, 12, 24, 40, 60, 80, 87, 88, 90, 95];
@@ -63,7 +63,11 @@ impl Rng {
         if w > 64 {
             bits |= (self.next_u64() as u128) << 64;
         }
-        let mask = if w >= 128 { u128::MAX } else { (1u128 << w) - 1 };
+        let mask = if w >= 128 {
+            u128::MAX
+        } else {
+            (1u128 << w) - 1
+        };
         ((bits & mask) as i128).min(D96_MAX_RAW)
     }
 }
@@ -91,11 +95,11 @@ fn le192(a: (u128, u128), b: (u128, u128)) -> bool {
 struct Stats {
     n: u64,
     oracle_fail: u64,
-    rd_violation: u64,    // floored rust_decimal sqrt left [y, y+ULP)
-    rd_max_ulp: f64,      // worst (rd - y) in ULP units
+    rd_violation: u64, // floored rust_decimal sqrt left [y, y+ULP)
+    rd_max_ulp: f64,   // worst (rd - y) in ULP units
     f64_max_abs: f64,
     f64_max_rel: f64,
-    neg_fail: u64,        // sqrt(neg) was not None, or try_sqrt(neg) not Err
+    neg_fail: u64, // sqrt(neg) was not None, or try_sqrt(neg) not Err
     first_fail: Option<(String, i128)>,
 }
 
@@ -196,7 +200,13 @@ fn check_negatives(s64: &mut Stats, s96: &mut Stats) {
             s64.neg_fail += 1;
         }
     }
-    for &raw in &[-1i128, -1_000_000_000_000, D96::MIN.to_raw(), D96::MIN.to_raw() + 1, -2] {
+    for &raw in &[
+        -1i128,
+        -1_000_000_000_000,
+        D96::MIN.to_raw(),
+        D96::MIN.to_raw() + 1,
+        -2,
+    ] {
         let x = D96::from_raw(raw);
         if x.sqrt().is_some() || x.try_sqrt() != Err(DecimalError::NegativeValue) {
             s96.neg_fail += 1;
@@ -206,7 +216,19 @@ fn check_negatives(s64: &mut Stats, s96: &mut Stats) {
 
 fn edge_raws_d64() -> Vec<i64> {
     let s = D64_SCALE as i64;
-    let mut v = vec![0, 1, 2, 3, s, 2 * s, 4 * s, 9 * s, 16 * s, i64::MAX, i64::MAX - 1];
+    let mut v = vec![
+        0,
+        1,
+        2,
+        3,
+        s,
+        2 * s,
+        4 * s,
+        9 * s,
+        16 * s,
+        i64::MAX,
+        i64::MAX - 1,
+    ];
     // perfect squares of integers k (raw = (k*s) so value=k, sqrt=sqrt(k))
     for k in 1..=20i64 {
         v.push(k * k * s); // value k^2 -> sqrt k exactly
@@ -217,14 +239,27 @@ fn edge_raws_d64() -> Vec<i64> {
 fn edge_raws_d96() -> Vec<i128> {
     let s = D96_SCALE as i128;
     // fast/wide seam: high==0 iff raw*1e12 <= u128::MAX, i.e. raw <= this `b`.
-    // raw=b uses the u128 fast path; raw=b+1 enters the wide binary search.
+    // raw=b uses the u128 fast path; raw=b+1 enters the wide 192-bit path.
     let b = (u128::MAX / D96_SCALE) as i128;
     let mut v = vec![
-        0, 1, 2, 3, s, 2 * s, 4 * s, 9 * s, 16 * s,
-        D96_MAX_RAW, D96_MAX_RAW - 1,
-        b - 2, b - 1, b, b + 1, b + 2,                  // around the fast/wide seam
-        10_000_000_000_000_000 * s,                     // value 1e16 -> sqrt 1e8 (wide, exact)
-        22_500_000_000_000_000 * s,                     // value 2.25e16 -> sqrt 1.5e8 (wide)
+        0,
+        1,
+        2,
+        3,
+        s,
+        2 * s,
+        4 * s,
+        9 * s,
+        16 * s,
+        D96_MAX_RAW,
+        D96_MAX_RAW - 1,
+        b - 2,
+        b - 1,
+        b,
+        b + 1,
+        b + 2,                      // around the fast/wide seam
+        10_000_000_000_000_000 * s, // value 1e16 -> sqrt 1e8 (wide, exact)
+        22_500_000_000_000_000 * s, // value 2.25e16 -> sqrt 1.5e8 (wide)
     ];
     for k in 1..=20i128 {
         v.push(k * k * s); // value k^2 -> sqrt k exactly
@@ -277,7 +312,10 @@ fn main() {
     for (name, s) in [("D64", &s64), ("D96", &s96)] {
         println!("== {name} ==  ({} sqrt checked)", s.n);
         println!("  exact-oracle failures : {}", s.oracle_fail);
-        println!("  rust_decimal violations: {}  (floored sqrt outside [y, y+ULP))", s.rd_violation);
+        println!(
+            "  rust_decimal violations: {}  (floored sqrt outside [y, y+ULP))",
+            s.rd_violation
+        );
         // The floor of a non-perfect-square root approaches but never reaches
         // 1 ULP below rust_decimal's ~28-digit root, so the exact (Decimal)
         // violation count is the verdict; the f64 max is shown for context and
@@ -303,7 +341,14 @@ fn main() {
         && s96.rd_violation == 0
         && s64.neg_fail == 0
         && s96.neg_fail == 0;
-    println!("RESULT: {}\n", if ok { "PASS — all backends agree within bounds" } else { "FAIL — see failures above" });
+    println!(
+        "RESULT: {}\n",
+        if ok {
+            "PASS — all backends agree within bounds"
+        } else {
+            "FAIL — see failures above"
+        }
+    );
 
     // ---- throughput (coarse; criterion benches are authoritative) ----
     println!("throughput over {n} random inputs (lower ns/op = faster):");
@@ -334,9 +379,23 @@ fn main() {
         black_box((raw as f64 / 1e8).sqrt());
     });
     let adj = |d: Duration, base: Duration| ns_per(d.saturating_sub(base), n);
-    println!("  D64::sqrt        {:7.2} ns   rust_decimal {:7.2} ns   f64 {:7.2} ns", adj(ours64, base64), adj(rd64, base64), adj(f64p, base64));
-    println!("  D96::sqrt(mixed) {:7.2} ns   rust_decimal {:7.2} ns   f64 {:7.2} ns", adj(ours96, base96), adj(rd96, base96), adj(f96, base96));
-    println!("  (RNG-only baseline subtracted: D64 {:.2} ns, D96 {:.2} ns/iter)", ns_per(base64, n), ns_per(base96, n));
+    println!(
+        "  D64::sqrt        {:7.2} ns   rust_decimal {:7.2} ns   f64 {:7.2} ns",
+        adj(ours64, base64),
+        adj(rd64, base64),
+        adj(f64p, base64)
+    );
+    println!(
+        "  D96::sqrt(mixed) {:7.2} ns   rust_decimal {:7.2} ns   f64 {:7.2} ns",
+        adj(ours96, base96),
+        adj(rd96, base96),
+        adj(f96, base96)
+    );
+    println!(
+        "  (RNG-only baseline subtracted: D64 {:.2} ns, D96 {:.2} ns/iter)",
+        ns_per(base64, n),
+        ns_per(base96, n)
+    );
 
     std::process::exit(if ok { 0 } else { 1 });
 }

@@ -1,13 +1,12 @@
-# Phase 2 — Benchmark Coverage for New / Changed APIs
+# Benchmark Coverage for New and Changed APIs
 
 Date: 2026-06-20
 Branch: `feature/missing-api`
-Implements: Phase 2 of `docs/superpowers/specs/2026-06-20-d64-d96-release-performance-improvements-design.md`
 
 This phase adds focused Criterion coverage for the APIs added or reworked during
-the release-hardening pass, so later performance work (Phase 3) has a baseline to
-measure against. **Timings are informational and do not gate CI** (per the design
-doc); they exist to catch regressions and to justify any future optimisation.
+the release-hardening pass. The goal is to provide a repeatable baseline for
+future optimisation work. **Timings are informational and do not gate CI**; they
+exist to catch regressions and to justify future changes with measurements.
 
 ## Machine setup
 
@@ -61,7 +60,7 @@ Criterion's median. Full-default runs reproduce the same ordering.)
 The wide divide-then-round is ~3.7× the in-range path (5.16 → 19.14 ns) — the cost
 of the 192-bit divide that fixed the earlier D96 range cliff. `sqrt_wide` is ~2.5×
 the fast `sqrt` (10.50 → 26.57 ns), consistent with the Phase-1 sqrt rework
-(old binary-search wide path was ~416 ns; the shift-correct path is ~26 ns).
+(the earlier wide path was ~416 ns; the shift-correct path is ~26 ns).
 
 ### Allocation vs formatter cost
 
@@ -81,9 +80,8 @@ branch), confirming the dispatch cost is the tie logic, not strategy selection.
 
 - New bench functions live in `benches/bench_d64.rs` and `benches/bench_d96.rs`,
   wired into the existing `criterion_group!`. No new dependencies.
-- `d64_sqrt`, `d96_sqrt`, and `d96_sqrt_wide` already existed (added in the sqrt
-  rework); they are listed here because Phase 2 enumerates them and they anchor
-  the wide-path comparison.
+- `d64_sqrt`, `d96_sqrt`, and `d96_sqrt_wide` anchor the fast-path vs wide-path
+  comparison for the restored square-root API.
 - CI is unaffected: benches are `cargo check --benches`-gated and lint-clean under
   `cargo clippy --all-features --all-targets -- -D warnings`, but timings are not
   asserted.

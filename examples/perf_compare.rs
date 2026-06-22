@@ -58,10 +58,26 @@ fn main() {
         })
         .collect();
 
-    let add = best_ns(|| d64.iter().fold(0i128, |s, (a, b)| s.wrapping_add(a.checked_add(*b).map_or(0, |v| v.to_raw() as i128))));
-    let sub = best_ns(|| d64.iter().fold(0i128, |s, (a, b)| s.wrapping_add(a.checked_sub(*b).map_or(0, |v| v.to_raw() as i128))));
-    let mul = best_ns(|| d64.iter().fold(0i128, |s, (a, b)| s.wrapping_add(a.checked_mul(*b).map_or(0, |v| v.to_raw() as i128))));
-    let div = best_ns(|| d64.iter().fold(0i128, |s, (a, b)| s.wrapping_add(a.checked_div(*b).map_or(0, |v| v.to_raw() as i128))));
+    let add = best_ns(|| {
+        d64.iter().fold(0i128, |s, (a, b)| {
+            s.wrapping_add(a.checked_add(*b).map_or(0, |v| v.to_raw() as i128))
+        })
+    });
+    let sub = best_ns(|| {
+        d64.iter().fold(0i128, |s, (a, b)| {
+            s.wrapping_add(a.checked_sub(*b).map_or(0, |v| v.to_raw() as i128))
+        })
+    });
+    let mul = best_ns(|| {
+        d64.iter().fold(0i128, |s, (a, b)| {
+            s.wrapping_add(a.checked_mul(*b).map_or(0, |v| v.to_raw() as i128))
+        })
+    });
+    let div = best_ns(|| {
+        d64.iter().fold(0i128, |s, (a, b)| {
+            s.wrapping_add(a.checked_div(*b).map_or(0, |v| v.to_raw() as i128))
+        })
+    });
     println!("D64   add {add:5.2}   sub {sub:5.2}   mul {mul:5.2}   div {div:5.2}");
 
     // ---- D96 operands: values in [1, ~1e6) with SMALL divisors (fast div path) ----
@@ -78,11 +94,29 @@ fn main() {
         })
         .collect();
 
-    let add = best_ns(|| d96.iter().fold(0i128, |s, (a, b)| s.wrapping_add(a.checked_add(*b).map_or(0, |v| v.to_raw()))));
-    let sub = best_ns(|| d96.iter().fold(0i128, |s, (a, b)| s.wrapping_add(a.checked_sub(*b).map_or(0, |v| v.to_raw()))));
-    let mul = best_ns(|| d96.iter().fold(0i128, |s, (a, b)| s.wrapping_add(a.checked_mul(*b).map_or(0, |v| v.to_raw()))));
-    let div = best_ns(|| d96.iter().fold(0i128, |s, (a, b)| s.wrapping_add(a.checked_div(*b).map_or(0, |v| v.to_raw()))));
-    println!("D96   add {add:5.2}   sub {sub:5.2}   mul {mul:5.2}   div {div:5.2}   (small divisor / fast path)");
+    let add = best_ns(|| {
+        d96.iter().fold(0i128, |s, (a, b)| {
+            s.wrapping_add(a.checked_add(*b).map_or(0, |v| v.to_raw()))
+        })
+    });
+    let sub = best_ns(|| {
+        d96.iter().fold(0i128, |s, (a, b)| {
+            s.wrapping_add(a.checked_sub(*b).map_or(0, |v| v.to_raw()))
+        })
+    });
+    let mul = best_ns(|| {
+        d96.iter().fold(0i128, |s, (a, b)| {
+            s.wrapping_add(a.checked_mul(*b).map_or(0, |v| v.to_raw()))
+        })
+    });
+    let div = best_ns(|| {
+        d96.iter().fold(0i128, |s, (a, b)| {
+            s.wrapping_add(a.checked_div(*b).map_or(0, |v| v.to_raw()))
+        })
+    });
+    println!(
+        "D96   add {add:5.2}   sub {sub:5.2}   mul {mul:5.2}   div {div:5.2}   (small divisor / fast path)"
+    );
 
     // ---- D96 division with LARGE divisors (raw >= 2^64 -> base-2^32 slow path) ----
     let mut rng = Rng::new(0x5105);
@@ -100,6 +134,10 @@ fn main() {
             (num, den)
         })
         .collect();
-    let div_big = best_ns(|| d96_big.iter().fold(0i128, |s, (a, b)| s.wrapping_add(a.checked_div(*b).map_or(0, |v| v.to_raw()))));
+    let div_big = best_ns(|| {
+        d96_big.iter().fold(0i128, |s, (a, b)| {
+            s.wrapping_add(a.checked_div(*b).map_or(0, |v| v.to_raw()))
+        })
+    });
     println!("D96   div {div_big:5.2}   (LARGE divisor >= 2^64 / slow path)");
 }

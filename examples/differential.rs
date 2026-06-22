@@ -3,7 +3,7 @@
 //!
 //! For N random iterations it cycles through add / sub / mul / div, and:
 //!   1. counts how often D64/D96 disagree with `rust_decimal` (the trusted
-//!      oracle) — should be 0 for +,-,* and within 1 ulp for /;
+//!      oracle) — expected to be 0 for +,-,* and within 1 ulp for /;
 //!   2. counts how often `f64` produces the wrong 8/12-decimal answer;
 //!   3. times each backend over the identical workload.
 //!
@@ -37,7 +37,11 @@ impl Rng {
         if w > 64 {
             bits |= (self.next_u64() as u128) << 64;
         }
-        let mask = if w >= 128 { u128::MAX } else { (1u128 << w) - 1 };
+        let mask = if w >= 128 {
+            u128::MAX
+        } else {
+            (1u128 << w) - 1
+        };
         let mag = (bits & mask) as i128;
         if self.next_u64() & 1 == 1 { -mag } else { mag }
     }
@@ -133,7 +137,10 @@ fn run_d64(n: usize) {
     println!("  f64 wrong (>1ulp): {f64_wrong} / {checked}");
     println!(
         "  time/op  D64={:.2}ns  rust_decimal={:.2}ns  f64={:.2}ns  (D64 is {:.1}x faster than rust_decimal)",
-        t_d64, t_dec, t_f64, t_dec / t_d64
+        t_d64,
+        t_dec,
+        t_f64,
+        t_dec / t_d64
     );
 }
 
@@ -205,7 +212,9 @@ fn run_d96(n: usize) {
     println!("  vs rust_decimal : {mismatch} mismatches / {checked} comparable ops");
     println!(
         "  time/op  D96={:.2}ns  rust_decimal={:.2}ns  (D96 is {:.1}x faster than rust_decimal)",
-        t_d96, t_dec, t_dec / t_d96
+        t_d96,
+        t_dec,
+        t_dec / t_d96
     );
 }
 
@@ -239,9 +248,15 @@ fn time_decimal(n: usize, widths: &[u32], scale: u32) -> f64 {
     let start = Instant::now();
     for k in 0..n {
         let (ar, br) = if scale == 8 {
-            (rng.bounded(widths) as i64 as i128, rng.bounded(widths) as i64 as i128)
+            (
+                rng.bounded(widths) as i64 as i128,
+                rng.bounded(widths) as i64 as i128,
+            )
         } else {
-            (rng.bounded(widths).clamp(-max, max), rng.bounded(widths).clamp(-max, max))
+            (
+                rng.bounded(widths).clamp(-max, max),
+                rng.bounded(widths).clamp(-max, max),
+            )
         };
         let a = Decimal::from_i128_with_scale(ar, scale);
         let b = Decimal::from_i128_with_scale(br, scale);

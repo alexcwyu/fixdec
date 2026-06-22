@@ -19,9 +19,10 @@ This document compares common Rust numeric choices for financial, trading, crypt
 
 ## Feature Positioning (at a glance)
 
-This condensed trade-off table originated in an OpenAI Codex review and was
-independently re-verified against each crate's documentation on 2026-06-20 (every
-cell checked accurate; peer strengths are credited, not strawmanned).
+This condensed trade-off table was re-verified against each crate's
+documentation on 2026-06-20. It credits peer-library strengths directly and
+keeps binary-fixed, binary-float, fixed-decimal, and variable-decimal semantics
+separate.
 
 | Type | Best use case | Strength | Caveat |
 |---|---|---|---|
@@ -249,4 +250,3 @@ For trading and exchange systems:
 - Use `rust_decimal` at API boundaries if ecosystem compatibility matters.
 - Use `bigdecimal` or `rust_decimal` as differential-test or import/export helpers, not hot-path arithmetic.
 - Keep `f64` out of exact money paths. It is useful for analytics and speed baselines, not settlement truth.
-

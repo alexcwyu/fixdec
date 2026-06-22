@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fixed-Point Decimal Benchmark Report - 2026-06-20</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #ffffff;
+      --fg: #17202a;
+      --muted: #5d6773;
+      --line: #d9dee5;
+      --head: #eef2f6;
+      --accent: #0f766e;
+      --code: #f6f8fa;
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 15px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 36px 24px 56px;
+    }
+    h1, h2 {
+      line-height: 1.2;
+      margin: 0 0 14px;
+    }
+    h1 {
+      font-size: 30px;
+      border-bottom: 2px solid var(--line);
+      padding-bottom: 16px;
+      margin-bottom: 18px;
+    }
+    h2 {
+      font-size: 21px;
+      margin-top: 34px;
+    }
+    p, li {
+      color: var(--fg);
+    }
+    .meta {
+      color: var(--muted);
+      margin-bottom: 24px;
+    }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: var(--code);
+      border-radius: 6px;
+    }
+    code {
+      padding: 0.1em 0.3em;
+    }
+    pre {
+      padding: 14px 16px;
+      overflow: auto;
+      border: 1px solid var(--line);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 22px;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 8px 10px;
+      vertical-align: top;
+    }
+    th {
+      background: var(--head);
+      text-align: left;
+      font-weight: 650;
+    }
+    td.num, th.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: #f3fbf9;
+      padding: 12px 14px;
+      margin: 18px 0;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Fixed-Point Decimal Benchmark Report</h1>
+  <p class="meta">Date: 2026-06-20<br>Repository: <code>fixdec</code><br>Harness: <code>examples/fair_bench.rs</code></p>
+
+  <h2>Setup</h2>
+  <pre><code>RUNS=10 ITERS=5000000 CHUNK=1000 cargo run --release --example fair_bench</code></pre>
+  <ul>
+    <li>10 independent runs per library/operation.</li>
+    <li>5,000,000 operations per run.</li>
+    <li>1,000 operations per timed chunk.</li>
+    <li><code>mean ns/op</code> drops the best and worst run when more than two runs are present.</li>
+    <li><code>p90</code>, <code>p99</code>, and <code>p99.9</code> are computed over timed chunks.</li>
+    <li>Operands are pre-generated outside timing, and all implementations use the same 256 decimal operand string pairs where possible.</li>
+    <li>Formatting benchmarks use a reused <code>String</code> buffer to isolate formatter cost without per-call allocation.</li>
+  </ul>
+  <div class="callout">p99.9 is chunk-level latency per operation inside 1,000-operation chunks. It is not single-operation hardware latency.</div>
+
+  <h2>Mean ns/op</h2>
+  <table>
+    <thead>
+      <tr><th>op</th><th class="num">D64</th><th class="num">D96</th><th class="num">f64</th><th class="num">rust_decimal</th><th class="num">fpdec</th><th class="num">fixed I64F64</th><th class="num">bigdecimal</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>add</td><td class="num">0.771</td><td class="num">1.134</td><td class="num">0.801</td><td class="num">2.434</td><td class="num">1.541</td><td class="num">0.966</td><td class="num">25.585</td></tr>
+      <tr><td>sub</td><td class="num">0.760</td><td class="num">1.140</td><td class="num">0.785</td><td class="num">2.543</td><td class="num">1.543</td><td class="num">0.968</td><td class="num">27.047</td></tr>
+      <tr><td>mul</td><td class="num">2.027</td><td class="num">4.909</td><td class="num">0.647</td><td class="num">2.429</td><td class="num">2.294</td><td class="num">1.179</td><td class="num">15.393</td></tr>
+      <tr><td>div</td><td class="num">1.994</td><td class="num">4.935</td><td class="num">0.613</td><td class="num">40.979</td><td class="num">9.946</td><td class="num">28.300</td><td class="num">3410.738</td></tr>
+      <tr><td>parse</td><td class="num">7.580</td><td class="num">10.437</td><td class="num">4.864</td><td class="num">3.174</td><td class="num">4.936</td><td class="num">45.459</td><td class="num">44.620</td></tr>
+      <tr><td>format</td><td class="num">13.602</td><td class="num">17.621</td><td class="num">28.089</td><td class="num">14.389</td><td class="num">36.906</td><td class="num">26.809</td><td class="num">49.588</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Throughput</h2>
+  <table>
+    <thead>
+      <tr><th>op</th><th class="num">D64</th><th class="num">D96</th><th class="num">f64</th><th class="num">rust_decimal</th><th class="num">fpdec</th><th class="num">fixed I64F64</th><th class="num">bigdecimal</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>add</td><td class="num">1297.6</td><td class="num">881.8</td><td class="num">1248.1</td><td class="num">410.9</td><td class="num">648.8</td><td class="num">1034.8</td><td class="num">39.1</td></tr>
+      <tr><td>sub</td><td class="num">1315.6</td><td class="num">877.2</td><td class="num">1273.2</td><td class="num">393.2</td><td class="num">648.2</td><td class="num">1033.5</td><td class="num">37.0</td></tr>
+      <tr><td>mul</td><td class="num">493.4</td><td class="num">203.7</td><td class="num">1546.6</td><td class="num">411.8</td><td class="num">435.9</td><td class="num">848.3</td><td class="num">65.0</td></tr>
+      <tr><td>div</td><td class="num">501.5</td><td class="num">202.6</td><td class="num">1632.2</td><td class="num">24.4</td><td class="num">100.5</td><td class="num">35.3</td><td class="num">0.3</td></tr>
+      <tr><td>parse</td><td class="num">131.9</td><td class="num">95.8</td><td class="num">205.6</td><td class="num">315.0</td><td class="num">202.6</td><td class="num">22.0</td><td class="num">22.4</td></tr>
+      <tr><td>format</td><td class="num">73.5</td><td class="num">56.7</td><td class="num">35.6</td><td class="num">69.5</td><td class="num">27.1</td><td class="num">37.3</td><td class="num">20.2</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Interpretation</h2>
+  <ul>
+    <li><code>D64</code> is the strongest exact decimal option overall in this benchmark.</li>
+    <li><code>D96</code> is slower than <code>D64</code>, as expected from wider arithmetic, but still much faster than <code>rust_decimal</code>, <code>fpdec</code>, <code>fixed</code>, and <code>bigdecimal</code> for decimal division in this workload.</li>
+    <li><code>rust_decimal</code> parses fastest and formats close to <code>D64</code>, but division is much slower.</li>
+    <li><code>fpdec</code> is competitive for add/sub/mul but slower on division and formatting.</li>
+    <li><code>fixed I64F64</code> and <code>f64</code> are speed references, not decimal correctness references.</li>
+    <li><code>bigdecimal</code> is useful when arbitrary precision matters more than low latency.</li>
+  </ul>
+</main>
+</body>
+</html>

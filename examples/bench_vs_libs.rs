@@ -136,38 +136,86 @@ fn main() {
     let fp_a: Vec<FpDecimal> = sa.iter().map(|s| FpDecimal::from_str(s).unwrap()).collect();
     let fp_b: Vec<FpDecimal> = sb.iter().map(|s| FpDecimal::from_str(s).unwrap()).collect();
 
-    let bd_a: Vec<BigDecimal> = sa.iter().map(|s| BigDecimal::from_str(s).unwrap()).collect();
-    let bd_b: Vec<BigDecimal> = sb.iter().map(|s| BigDecimal::from_str(s).unwrap()).collect();
+    let bd_a: Vec<BigDecimal> = sa
+        .iter()
+        .map(|s| BigDecimal::from_str(s).unwrap())
+        .collect();
+    let bd_b: Vec<BigDecimal> = sb
+        .iter()
+        .map(|s| BigDecimal::from_str(s).unwrap())
+        .collect();
 
-    // Raw IEEE-754 f64 — the hardware floating-point speed ceiling (NOT decimal-exact).
+    // Raw IEEE-754 f64: the hardware floating-point speed ceiling, not decimal-exact.
     let f64_a: Vec<f64> = sa.iter().map(|s| s.parse::<f64>().unwrap()).collect();
     let f64_b: Vec<f64> = sb.iter().map(|s| s.parse::<f64>().unwrap()).collect();
 
     let mut rows = Vec::new();
 
     rows.push(bench_copy(
-        "fixdec D64", "dec fixed 8dp", n, &d64_a, &d64_b,
-        |x, y| x + y, |x, y| x - y, |x, y| x * y, |x, y| x / y,
+        "fixdec D64",
+        "dec fixed 8dp",
+        n,
+        &d64_a,
+        &d64_b,
+        |x, y| x + y,
+        |x, y| x - y,
+        |x, y| x * y,
+        |x, y| x / y,
     ));
     rows.push(bench_copy(
-        "fixdec D96", "dec fixed 12dp", n, &d96_a, &d96_b,
-        |x, y| x + y, |x, y| x - y, |x, y| x * y, |x, y| x / y,
+        "fixdec D96",
+        "dec fixed 12dp",
+        n,
+        &d96_a,
+        &d96_b,
+        |x, y| x + y,
+        |x, y| x - y,
+        |x, y| x * y,
+        |x, y| x / y,
     ));
     rows.push(bench_copy(
-        "rust_decimal", "dec scale 0-28", n, &rd_a, &rd_b,
-        |x, y| x + y, |x, y| x - y, |x, y| x * y, |x, y| (x / y).round_dp(8),
+        "rust_decimal",
+        "dec scale 0-28",
+        n,
+        &rd_a,
+        &rd_b,
+        |x, y| x + y,
+        |x, y| x - y,
+        |x, y| x * y,
+        |x, y| (x / y).round_dp(8),
     ));
     rows.push(bench_copy(
-        "fixed I64F64", "binary fixed", n, &fx_a, &fx_b,
-        |x, y| x + y, |x, y| x - y, |x, y| x * y, |x, y| x / y,
+        "fixed I64F64",
+        "binary fixed",
+        n,
+        &fx_a,
+        &fx_b,
+        |x, y| x + y,
+        |x, y| x - y,
+        |x, y| x * y,
+        |x, y| x / y,
     ));
     rows.push(bench_copy(
-        "fpdec", "dec scale 0-18", n, &fp_a, &fp_b,
-        |x, y| x + y, |x, y| x - y, |x, y| x * y, |x, y| x.div_rounded(y, 8),
+        "fpdec",
+        "dec scale 0-18",
+        n,
+        &fp_a,
+        &fp_b,
+        |x, y| x + y,
+        |x, y| x - y,
+        |x, y| x * y,
+        |x, y| x.div_rounded(y, 8),
     ));
     rows.push(bench_copy(
-        "f64 (double)", "binary float", n, &f64_a, &f64_b,
-        |x, y| x + y, |x, y| x - y, |x, y| x * y, |x, y| x / y,
+        "f64 (double)",
+        "binary float",
+        n,
+        &f64_a,
+        &f64_b,
+        |x, y| x + y,
+        |x, y| x - y,
+        |x, y| x * y,
+        |x, y| x / y,
     ));
     rows.push(Row {
         name: "bigdecimal",
@@ -244,7 +292,7 @@ fn main() {
          - rust_decimal: 128-bit base-10, per-value scale 0-28; mul renormalises scale, \n\
            div goes to 28 digits then we round_dp(8). 16 bytes, Copy.\n\
          - fixed I64F64: BINARY fixed-point (base-2) — cannot represent 0.1 exactly; \n\
-           fastest reference but NOT decimal-exact. div truncates toward zero.\n\
+           fastest reference but not decimal-exact. div truncates toward zero.\n\
          - fpdec: i128 base-10, per-value scale 0-18; div uses div_rounded(.,8) (bare `/`\n\
            panics on non-terminating quotients). Copy.\n\
          - bigdecimal: arbitrary-precision heap BigInt — every op allocates; div bounded\n\
