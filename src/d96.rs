@@ -3802,6 +3802,23 @@ impl<'de> Deserialize<'de> for D96 {
                          (precision may be lost); send a decimal string or an integer",
                     ))
                 }
+
+                fn visit_map<A>(self, mut map: A) -> core::result::Result<D96, A::Error>
+                where
+                    A: de::MapAccess<'de>,
+                {
+                    let key = map
+                        .next_key::<alloc::string::String>()?
+                        .ok_or_else(|| de::Error::custom("empty D96 element"))?;
+                    if key != "$text" {
+                        return Err(de::Error::custom("expected D96 element text"));
+                    }
+                    let value = map.next_value::<alloc::string::String>()?;
+                    if map.next_key::<de::IgnoredAny>()?.is_some() {
+                        return Err(de::Error::custom("unexpected D96 element field"));
+                    }
+                    D96::from_str_exact(&value).map_err(de::Error::custom)
+                }
             }
 
             deserializer.deserialize_any(D96Visitor)

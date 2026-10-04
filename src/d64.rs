@@ -3087,6 +3087,23 @@ impl<'de> Deserialize<'de> for D64 {
                          (precision may be lost); send a decimal string or an integer",
                     ))
                 }
+
+                fn visit_map<A>(self, mut map: A) -> core::result::Result<D64, A::Error>
+                where
+                    A: de::MapAccess<'de>,
+                {
+                    let key = map
+                        .next_key::<alloc::string::String>()?
+                        .ok_or_else(|| de::Error::custom("empty D64 element"))?;
+                    if key != "$text" {
+                        return Err(de::Error::custom("expected D64 element text"));
+                    }
+                    let value = map.next_value::<alloc::string::String>()?;
+                    if map.next_key::<de::IgnoredAny>()?.is_some() {
+                        return Err(de::Error::custom("unexpected D64 element field"));
+                    }
+                    D64::from_str_exact(&value).map_err(de::Error::custom)
+                }
             }
 
             deserializer.deserialize_any(D64Visitor)

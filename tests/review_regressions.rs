@@ -270,6 +270,44 @@ fn d64_with_scale_lossy_rounds_not_truncates() {
     assert_eq!(D64::try_with_scale_lossy(1, 50), Some(D64::ZERO)); // huge scale -> 0
 }
 
+// ============================================================================
+// [0b] `D64::try_with_scale_lossy` FAST arm (scale <= DECIMALS) must be EXACT.
+//      Every pre-existing caller of this function used scale > DECIMALS (9, 16,
+//      50, 119) or an overflowing mantissa, so the fast SUCCESS arm carried no
+//      fixture at all: E-407 plant P8 (fast arm `Some(Self { value })` ->
+//      `value.wrapping_add(3)`) was a TOTAL SURVIVOR across all 2,927 tests.
+//      One test per sub-branch of that arm. Rows 906/1003/1061.
+// ============================================================================
+
+#[test]
+fn d64_try_with_scale_lossy_fast_arm_scales_up_exactly() {
+    // scale 2 < DECIMALS 8 -> scale_diff 6, multiplier 10^6.
+    assert_eq!(
+        D64::try_with_scale_lossy(12_345, 2),
+        Some(D64::from_raw(12_345_000_000))
+    );
+    // scale 0 -> scale_diff 8, the widest non-zero shift.
+    assert_eq!(
+        D64::try_with_scale_lossy(7, 0),
+        Some(D64::from_raw(700_000_000))
+    );
+    assert_eq!(
+        D64::try_with_scale_lossy(-12_345, 2),
+        Some(D64::from_raw(-12_345_000_000))
+    );
+}
+
+#[test]
+fn d64_try_with_scale_lossy_fast_arm_scale_eq_decimals_is_identity() {
+    // scale == DECIMALS -> scale_diff == 0: a SEPARATE sub-branch that returns
+    // the mantissa as the raw with no multiply. Mantissa is neither 0 nor 1, so
+    // the fixture cannot collapse onto the identity it is asserting.
+    assert_eq!(
+        D64::try_with_scale_lossy(987_654_321, D64::DECIMALS as u32),
+        Some(D64::from_raw(987_654_321))
+    );
+}
+
 #[test]
 fn d96_with_scale_lossy_rounds_not_truncates() {
     // scale_diff = 12 exercises the truncating pre-loop regression case.

@@ -43,7 +43,7 @@ fn to_py_decimal<'py>(py: Python<'py>, s: &str) -> PyResult<Bound<'py, PyAny>> {
 /// parsers reject; `Decimal(ob).__format__("f")` (i.e. `format(., "f")`) yields
 /// `"0.0000001"` instead, so every representable value round-trips. Floats and
 /// ints are handled by the callers before reaching here.
-fn fixed_point_string(ob: &Bound<'_, PyAny>) -> PyResult<String> {
+fn fixed_point_string(ob: Borrowed<'_, '_, PyAny>) -> PyResult<String> {
     let decimal = decimal_type(ob.py())?;
     if ob.get_type().is(decimal) {
         // Fast path: an EXACT `Decimal`, so format it directly and skip the
@@ -86,8 +86,10 @@ impl<'py> IntoPyObject<'py> for &D64 {
     }
 }
 
-impl<'py> FromPyObject<'py> for D64 {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for D64 {
+    type Error = PyErr;
+
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         // bool is a subclass of int in Python; reject it so `True`/`False` are
         // not silently coerced to 1/0.
         if ob.is_instance_of::<PyBool>() {
@@ -142,8 +144,10 @@ impl<'py> IntoPyObject<'py> for &D96 {
     }
 }
 
-impl<'py> FromPyObject<'py> for D96 {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for D96 {
+    type Error = PyErr;
+
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         // bool is a subclass of int in Python; reject it (see D64).
         if ob.is_instance_of::<PyBool>() {
             return Err(PyValueError::new_err("bool is not a valid D96 value"));

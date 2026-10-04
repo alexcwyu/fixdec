@@ -34,7 +34,7 @@ rust_decimal = { version = "1.39.0", optional = true, default-features = false }
 # Optional PyO3 interop (D64/D96 <-> Python decimal.Decimal). PyO3 links
 # libpython and needs a Python toolchain, so this feature is std-only and is
 # deliberately NOT part of `full`.
-pyo3 = { version = "0.26", optional = true, default-features = false }
+pyo3 = { version = "0.28.3", optional = true, default-features = false }
 # Optional rkyv 0.8 zero-copy archival. default-features = false keeps it no_std;
 # we re-add `alloc` (to_bytes/access/from_bytes allocate an AlignedVec/arena) and
 # `bytecheck` (the safe, validated access path that enforces D96's 96-bit range).
@@ -77,7 +77,7 @@ bigdecimal = "0.4.10"
 # rust_decimal enables PyO3's native Decimal <-> rust_decimal::Decimal conversion
 # (used by examples/bench_pyo3.rs for an apples-to-apples comparison).
 # default-features = false mirrors the optional dependency.
-pyo3 = { version = "0.26", default-features = false, features = ["auto-initialize", "rust_decimal"] }
+pyo3 = { version = "0.28.3", default-features = false, features = ["auto-initialize", "rust_decimal"] }
 
 [profile.bench]
 opt-level = 3           # Maximum optimizations (default)
