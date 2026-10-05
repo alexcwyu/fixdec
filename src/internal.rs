@@ -46,23 +46,6 @@ pub(crate) const fn pow10_u64(k: u8) -> u64 {
     POW10_I128[k as usize] as u64
 }
 
-/// Replacement for the standard library's `f64::round` (which is unavailable in
-/// `core`): rounds half away from zero. The fixed-point `from_f64` paths
-/// range-check the result afterwards, so the `as i128` truncation for huge
-/// inputs is harmless (the caller rejects the out-of-range value either way).
-#[inline]
-pub(crate) fn round_half_away_f64(value: f64) -> f64 {
-    let truncated = (value as i128) as f64; // toward zero (saturating for huge inputs)
-    let frac = value - truncated;
-    if frac >= 0.5 {
-        truncated + 1.0
-    } else if frac <= -0.5 {
-        truncated - 1.0
-    } else {
-        truncated
-    }
-}
-
 /// Divides `m` by `10^k` with banker's rounding (round half to even) applied to
 /// the full dropped fraction in a single step. Returns 0 for `k >= 39` (the
 /// divisor exceeds any representable mantissa, so the quotient rounds to 0).
@@ -296,4 +279,223 @@ mod tests {
         assert_eq!(isqrt_u128(u128::MAX), top);
         assert_eq!(top.checked_mul(top), Some(u128::MAX - 2 * top));
     }
+}
+
+/// Number of decimal digits of `n` (`0` has one).
+#[inline]
+pub(crate) const fn digit_count(n: u64) -> usize {
+    match n.checked_ilog10() {
+        Some(l) => l as usize + 1,
+        None => 1,
+    }
+}
+
+/// Writes an unsigned, ASCII number the way `core`'s numeric `Display` does: the sign
+/// (`-`, or `+` with the flag), then padding to `width` with the fill and alignment
+/// (right by default; the `0` flag pads with zeros between sign and digits).
+/// `body_len` is the length of what `body` writes.
+#[inline]
+pub(crate) fn pad_number(
+    f: &mut core::fmt::Formatter<'_>,
+    negative: bool,
+    body_len: usize,
+    body: impl FnOnce(&mut core::fmt::Formatter<'_>) -> core::fmt::Result,
+) -> core::fmt::Result {
+    use core::fmt::{Alignment, Write};
+    let sign = if negative {
+        "-"
+    } else if f.sign_plus() {
+        "+"
+    } else {
+        ""
+    };
+    let pad = f
+        .width()
+        .map_or(0, |w| w.saturating_sub(sign.len() + body_len));
+    if pad == 0 {
+        if !sign.is_empty() {
+            f.write_str(sign)?;
+        }
+        return body(f);
+    }
+    if f.sign_aware_zero_pad() {
+        f.write_str(sign)?;
+        for _ in 0..pad {
+            f.write_char('0')?;
+        }
+        return body(f);
+    }
+    let (left, right) = match f.align() {
+        Some(Alignment::Left) => (0, pad),
+        Some(Alignment::Center) => (pad / 2, pad - pad / 2),
+        _ => (pad, 0),
+    };
+    let fill = f.fill();
+    for _ in 0..left {
+        f.write_char(fill)?;
+    }
+    f.write_str(sign)?;
+    body(f)?;
+    for _ in 0..right {
+        f.write_char(fill)?;
+    }
+    Ok(())
+}
+
+// ============================================================================
+// String parsing helpers
+// ============================================================================
+
+/// True if `s` is a well-formed numeral: `[+-]` then digits with at most one `.` and at
+/// least one digit overall, then (when `scientific`) an optional `[eE][+-]digits`.
+/// Says nothing about range or precision.
+pub(crate) fn is_numeral(s: &[u8], scientific: bool) -> bool {
+    let mut i = usize::from(matches!(s.first(), Some(b'+' | b'-')));
+    let (mut digits, mut dots) = (0, 0);
+    while i < s.len() && (s[i].is_ascii_digit() || s[i] == b'.') {
+        if s[i] == b'.' {
+            dots += 1;
+        } else {
+            digits += 1;
+        }
+        i += 1;
+    }
+    if digits == 0 || dots > 1 {
+        return false;
+    }
+    if i == s.len() {
+        return true;
+    }
+    if !scientific || !matches!(s[i], b'e' | b'E') {
+        return false;
+    }
+    i += 1;
+    i += usize::from(matches!(s.get(i), Some(b'+' | b'-')));
+    i < s.len() && s[i..].iter().all(u8::is_ascii_digit)
+}
+
+/// A malformed string is `InvalidFormat` whatever else is wrong with it. The parsers stop
+/// at the first problem they meet, so a string like `"1.123456789x"` would otherwise be
+/// reported as `PrecisionLoss` (or `Overflow`) merely because that check came first.
+/// Applied on the error path only, so valid input pays nothing.
+pub(crate) fn parse_error(
+    s: &str,
+    e: crate::DecimalError,
+    scientific: bool,
+) -> crate::DecimalError {
+    use crate::DecimalError::{InvalidFormat, Overflow, PrecisionLoss, Underflow};
+    if matches!(e, Overflow | PrecisionLoss | Underflow)
+        && !is_numeral(s.trim().as_bytes(), scientific)
+    {
+        InvalidFormat
+    } else {
+        e
+    }
+}
+
+/// The magnitude, in units of `10^-decimals`, of the decimal numeral `int.frac × 10^exp`
+/// (`int` and `frac` are ASCII digits the caller has validated; any length).
+///
+/// Exact mode (`lossy == false`) rejects a numeral with significant digits below the last
+/// place as `PrecisionLoss`; lossy mode rounds them half to even. A magnitude beyond
+/// `u128` is `Overflow`; the caller applies the sign and the type's own range.
+///
+/// Works on the digit strings, so a long numeral (`"1e-40"` written with 41 zeros) needs no
+/// wide accumulator: leading zeros are skipped and trailing zeros become exponent.
+pub(crate) fn scaled_magnitude(
+    int: &[u8],
+    frac: &[u8],
+    exp: i64,
+    decimals: u32,
+    lossy: bool,
+) -> Result<u128, crate::DecimalError> {
+    use crate::DecimalError::{Overflow, PrecisionLoss};
+    let total = int.len() + frac.len();
+    let digit = |i: usize| if i < int.len() { int[i] } else { frac[i - int.len()] } - b'0';
+
+    let lead = (0..total).take_while(|&i| digit(i) == 0).count();
+    if lead == total {
+        return Ok(0);
+    }
+    let trail = (lead..total).rev().take_while(|&i| digit(i) == 0).count();
+    let len = total - lead - trail; // significant digits, the last one non-zero
+    let digit = |i: usize| digit(lead + i);
+    let parse = |n: usize| {
+        (0..n).try_fold(0u128, |a, i| {
+            a.checked_mul(10)?.checked_add(digit(i) as u128)
+        })
+    };
+
+    // value = M * 10^e10, M the `len` significant digits
+    let e10 = exp + decimals as i64 - frac.len() as i64 + trail as i64;
+    if e10 >= 0 {
+        if len as i64 + e10 > 39 {
+            return Err(Overflow);
+        }
+        return parse(len)
+            .and_then(|m| m.checked_mul(pow10_u128_checked(e10 as u32)?))
+            .ok_or(Overflow);
+    }
+    // digits fall below the last place; the last significant one is non-zero
+    if !lossy {
+        return Err(PrecisionLoss);
+    }
+    let k = (-e10) as usize;
+    if k > len {
+        return Ok(0); // below 0.1 of the last place
+    }
+    let kept = len - k;
+    let q = parse(kept).ok_or(Overflow)?;
+    let next = digit(kept);
+    let more = kept + 1 < len; // a further digit, hence non-zero somewhere
+    let up = next > 5 || (next == 5 && (more || q % 2 == 1));
+    q.checked_add(up as u128).ok_or(Overflow)
+}
+
+/// `10^k` as `u128`, `None` beyond `10^38`.
+fn pow10_u128_checked(k: u32) -> Option<u128> {
+    10u128.checked_pow(k)
+}
+
+// ============================================================================
+// Float conversion
+// ============================================================================
+
+/// `round_half_away(|value| × 10^decimals)` of a finite `f64`, computed exactly from its
+/// binary expansion, or `None` if it exceeds `u128`. `scale` is `10^decimals` as `f64`.
+///
+/// Multiplying in floating point first rounds the product, which can push a value that
+/// is in range (or on the near side of a tie) across the line -- the largest in-range
+/// double was rejected for that reason. The float product is only used when it is far
+/// from every rounding decision; otherwise the digits are computed in integers.
+pub(crate) fn f64_scaled_magnitude(value: f64, decimals: u32, scale: f64) -> Option<u128> {
+    let a = value.abs();
+    let p = a * scale;
+    if p < 1e12 {
+        let fl = (p as u64) as f64; // floor, for 0 <= p < 1e12 (`f64::floor` needs std)
+        let d = p - fl;
+        if (d - 0.5).abs() > 1e-3 {
+            return Some(fl as u128 + (d > 0.5) as u128);
+        }
+    }
+    let bits = a.to_bits();
+    let (e, frac) = (((bits >> 52) & 0x7ff) as i32, bits & ((1 << 52) - 1));
+    let (m, e) = if e == 0 {
+        (frac, -1074)
+    } else {
+        (frac | 1 << 52, e - 1075)
+    };
+    let n = m as u128 * 10u128.pow(decimals); // < 2^53 * 10^12 < 2^93
+    if n == 0 {
+        return Some(0);
+    }
+    if e >= 0 {
+        return (e < 128 && n.leading_zeros() >= e as u32).then(|| n << e);
+    }
+    let s = (-e) as u32;
+    if s >= 128 {
+        return Some(0); // below 2^93 / 2^128: far under one half
+    }
+    let (q, rem) = (n >> s, n & ((1u128 << s) - 1));
+    Some(q + (rem >= 1u128 << (s - 1)) as u128)
 }

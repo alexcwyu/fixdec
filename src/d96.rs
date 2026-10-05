@@ -1,5 +1,6 @@
 use core::fmt;
 use core::iter::{Product, Sum};
+use core::num::IntErrorKind;
 use core::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
@@ -9,8 +10,9 @@ use core::str::FromStr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 use crate::internal::{
-    apply_rounding, apply_rounding_unsigned, banker_round_i128, gcd_u128, isqrt_u128, pow10_i128,
-    pow10_u128, round_div_pow10_i128, round_half_away_f64,
+    apply_rounding, apply_rounding_unsigned, banker_round_i128, f64_scaled_magnitude, gcd_u128,
+    isqrt_u128, pad_number, parse_error, pow10_i128, pow10_u128, round_div_pow10_i128,
+    scaled_magnitude,
 };
 use crate::{D64, DecimalError, RoundingStrategy};
 
@@ -935,7 +937,9 @@ impl D96 {
             None => return None,
         };
 
-        if quotient > Self::max_magnitude(mul_negative) {
+        // Only the final value has to fit 96 bits: a product beyond the type's range can
+        // still be brought back by `add` (|add| <= 2^95). Past `i128::MAX` it cannot.
+        if quotient > i128::MAX as u128 {
             return None;
         }
 
@@ -2423,29 +2427,7 @@ impl D96 {
     /// Returns `None` if the value is NaN, infinite, or out of range.
     #[inline(always)]
     pub fn from_f64(value: f64) -> Option<Self> {
-        if !value.is_finite() {
-            return None;
-        }
-
-        // NOTE: there is deliberately no cheap magnitude pre-guard here. A prior
-        // `value.abs() > 39_614_081_257_132.0` guard was 1000x too small (that
-        // constant is MAX.value's leading digits, not the decimal max of
-        // ~3.96e16) and wrongly rejected representable values. The `scaled`
-        // bounds plus the post-round 96-bit check below are exact.
-        let scaled = value * Self::SCALE as f64;
-
-        if scaled > Self::MAX.value as f64 || scaled < Self::MIN.value as f64 {
-            return None;
-        }
-
-        let result = round_half_away_f64(scaled) as i128;
-
-        // CRITICAL: Final 96-bit bounds check (catches rounding up past MAX).
-        if !(Self::MIN.value..=Self::MAX.value).contains(&result) {
-            return None;
-        }
-
-        Some(Self { value: result })
+        Self::try_from_f64(value).ok()
     }
 
     /// Converts to f64.
@@ -2478,31 +2460,20 @@ impl D96 {
     /// Creates a D96 from an f64, returning an error if invalid.
     #[inline(always)]
     pub fn try_from_f64(value: f64) -> crate::Result<Self> {
-        if value.is_nan() || value.is_infinite() {
+        if !value.is_finite() {
             return Err(DecimalError::InvalidFormat);
         }
-
-        // No 1000x-too-small magnitude pre-guard (see `from_f64`); the `scaled`
-        // and post-round 96-bit checks below are exact and sign-aware.
-        let scaled = value * Self::SCALE as f64;
-
-        if scaled > Self::MAX.value as f64 {
-            return Err(DecimalError::Overflow);
+        // Rounded half away from zero from the EXACT binary value (see
+        // `f64_scaled_magnitude`): forming `value * SCALE` in floating point rounds the
+        // product, which rejected the largest in-range double (it rounds up to 2^95).
+        let negative = value.is_sign_negative();
+        match f64_scaled_magnitude(value, Self::DECIMALS as u32, Self::SCALE as f64) {
+            Some(m) if m <= Self::MAX.value as u128 + negative as u128 => Ok(Self {
+                value: if negative { -(m as i128) } else { m as i128 },
+            }),
+            _ if negative => Err(DecimalError::Underflow),
+            _ => Err(DecimalError::Overflow),
         }
-        if scaled < Self::MIN.value as f64 {
-            return Err(DecimalError::Underflow);
-        }
-
-        let result = round_half_away_f64(scaled) as i128;
-
-        if result > Self::MAX.value {
-            return Err(DecimalError::Overflow);
-        }
-        if result < Self::MIN.value {
-            return Err(DecimalError::Underflow);
-        }
-
-        Ok(Self { value: result })
     }
 }
 
@@ -2535,6 +2506,10 @@ impl D96 {
     /// Supports formats like: "123", "123.45", "-123.45", "0.000000000001"
     /// Fast parsing using SWAR (SIMD Within A Register) for both integer and fractional parts
     pub fn from_str_exact(s: &str) -> crate::Result<Self> {
+        Self::parse_exact(s).map_err(|e| parse_error(s, e, true))
+    }
+
+    fn parse_exact(s: &str) -> crate::Result<Self> {
         let s = s.trim();
         if s.is_empty() {
             return Err(DecimalError::InvalidFormat);
@@ -2545,11 +2520,6 @@ impl D96 {
         // Scientific / E-notation: dispatch to a dedicated digit-level parser.
         if bytes.iter().any(|&b| b == b'e' || b == b'E') {
             return Self::from_scientific_bytes(bytes, false);
-        }
-
-        // Quick length check
-        if bytes.len() > 48 {
-            return Err(DecimalError::InvalidFormat);
         }
 
         let (is_negative, start) = match bytes[0] {
@@ -2682,74 +2652,33 @@ impl D96 {
         if mant_start >= mantissa.len() {
             return Err(DecimalError::InvalidFormat);
         }
-        let mut m: i128 = 0;
-        let mut frac_len: i64 = 0;
-        let mut seen_dot = false;
-        let mut seen_digit = false;
-        for &b in &mantissa[mant_start..] {
-            if b == b'.' {
-                if seen_dot {
-                    return Err(DecimalError::InvalidFormat);
-                }
-                seen_dot = true;
-                continue;
-            }
-            let digit = b.wrapping_sub(b'0');
-            if digit > 9 {
-                return Err(DecimalError::InvalidFormat);
-            }
-            seen_digit = true;
-            m = m
-                .checked_mul(10)
-                .and_then(|v| v.checked_add(digit as i128))
-                .ok_or(DecimalError::Overflow)?;
-            if seen_dot {
-                frac_len += 1;
-            }
-        }
-        if !seen_digit {
+        // Split `int.frac` and validate the digits; `scaled_magnitude` does the rest on the
+        // digit strings (any length, so no wide accumulator to overflow).
+        let digits = &mantissa[mant_start..];
+        let dot = digits.iter().position(|&b| b == b'.');
+        let (int, frac) = match dot {
+            Some(d) => (&digits[..d], &digits[d + 1..]),
+            None => (digits, &digits[..0]),
+        };
+        if int.len() + frac.len() == 0 || !int.iter().chain(frac).all(u8::is_ascii_digit) {
             return Err(DecimalError::InvalidFormat);
         }
-        if m == 0 {
-            return Ok(Self::ZERO); // 0eN == 0 regardless of the exponent
-        }
+        let magnitude = scaled_magnitude(int, frac, exp, Self::DECIMALS as u32, lossy)?;
 
-        // raw magnitude = M * 10^(exp - frac_len + DECIMALS)
-        let net = exp - frac_len + Self::DECIMALS as i64;
-        let magnitude: i128 = if net >= 0 {
-            if net > 38 {
-                return Err(DecimalError::Overflow); // 10^net exceeds i128 (m != 0)
-            }
-            m.checked_mul(pow10_i128(net as u8))
-                .ok_or(DecimalError::Overflow)?
-        } else {
-            let k = -net;
-            if lossy {
-                // Lossy: banker's-round the sub-ULP digits instead of rejecting
-                // (k >= 39 rounds the magnitude to 0). Matches from_str_lossy's
-                // documented half-even behaviour on the plain decimal path.
-                round_div_pow10_i128(m, k as u32)
-            } else {
-                if k > 38 {
-                    return Err(DecimalError::PrecisionLoss); // |value| below one ULP, nonzero
-                }
-                let div = pow10_i128(k as u8);
-                if m % div != 0 {
-                    return Err(DecimalError::PrecisionLoss);
-                }
-                m / div
-            }
-        };
+        Self::from_signed_magnitude(is_negative, magnitude)
+    }
 
-        // Apply sign and validate against the 96-bit range.
-        let value = if is_negative {
-            magnitude.checked_neg().ok_or(DecimalError::Overflow)?
-        } else {
-            magnitude
-        };
-        if !(Self::MIN.value..=Self::MAX.value).contains(&value) {
+    /// Applies the sign to a parsed magnitude, within the asymmetric 96-bit bounds
+    /// (`|MIN| = MAX + 1`).
+    fn from_signed_magnitude(negative: bool, magnitude: u128) -> crate::Result<Self> {
+        if magnitude > Self::MAX.value as u128 + negative as u128 {
             return Err(DecimalError::Overflow);
         }
+        let value = if negative {
+            -(magnitude as i128)
+        } else {
+            magnitude as i128
+        };
         Ok(Self { value })
     }
 
@@ -2758,6 +2687,10 @@ impl D96 {
     /// Unlike `from_str_exact`, this will succeed even if the input has more than
     /// 12 decimal places, rounding the excess digits using banker's rounding.
     pub fn from_str_lossy(s: &str) -> crate::Result<Self> {
+        Self::parse_lossy(s).map_err(|e| parse_error(s, e, true))
+    }
+
+    fn parse_lossy(s: &str) -> crate::Result<Self> {
         let s = s.trim();
 
         if s.is_empty() {
@@ -2770,10 +2703,6 @@ impl D96 {
         // banker's-rounds excess precision (exact parsing would reject it).
         if bytes.iter().any(|&b| b == b'e' || b == b'E') {
             return Self::from_scientific_bytes(bytes, true);
-        }
-
-        if bytes.len() > 48 {
-            return Err(DecimalError::InvalidFormat);
         }
 
         let (is_negative, start) = match bytes[0] {
@@ -2902,7 +2831,17 @@ impl D96 {
 
     /// Parse from fixed-point string (no decimal point)
     pub fn from_fixed_point_str(s: &str, decimals: u8) -> crate::Result<Self> {
-        let value = s.parse::<i128>().map_err(|_| DecimalError::InvalidFormat)?;
+        // Out-of-range digits are `Overflow`; anything that is not `[+-]digits` is not a number.
+        let value = s.parse::<i128>().map_err(|e| {
+            let digits = s.strip_prefix(['+', '-']).unwrap_or(s);
+            let numeral = !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit());
+            match e.kind() {
+                IntErrorKind::PosOverflow | IntErrorKind::NegOverflow if numeral => {
+                    DecimalError::Overflow
+                }
+                _ => DecimalError::InvalidFormat,
+            }
+        })?;
 
         if decimals > Self::DECIMALS {
             return Err(DecimalError::PrecisionLoss);
@@ -2956,9 +2895,9 @@ fn parse_integer_swar(bytes: &[u8]) -> crate::Result<i128> {
             return Err(DecimalError::InvalidFormat);
         }
 
-        // Combine with checked arithmetic: the 48-byte length cap admits up to
-        // 48 integer digits, far beyond i128 (~39 digits), so an unchecked
-        // `* 10000` would panic in debug / wrap silently in release.
+        // Combine with checked arithmetic: a numeral may be any length, far beyond
+        // i128 (~39 digits), so an unchecked `* 10000` would panic in debug / wrap
+        // silently in release.
         let chunk = (d0 as i128) * 1000 + (d1 as i128) * 100 + (d2 as i128) * 10 + (d3 as i128);
         result = result
             .checked_mul(10000)
@@ -3499,11 +3438,7 @@ impl D96 {
         let mut buffer = [0u8; 64];
         let mut pos = 0;
 
-        // Sign
-        if self.value < 0 {
-            buffer[pos] = b'-';
-            pos += 1;
-        }
+        // The sign is written by `pad_number`, with the width/fill/flags.
 
         // Integer part
         if int_part == 0 {
@@ -3520,9 +3455,8 @@ impl D96 {
             pos += format_fractional_fixed_width(frac_part, precision_capped, &mut buffer[pos..]);
         }
 
-        // The buffer is always ASCII (digits, '.', '-'), so this never errors.
+        // The buffer is always ASCII (digits and '.'), so this never errors.
         let s = core::str::from_utf8(&buffer[..pos]).unwrap();
-        f.write_str(s)?;
 
         // Zero-pad above the native scale: `core`'s float Display honours the
         // requested precision rather than capping it at the type's scale. The
@@ -3530,10 +3464,14 @@ impl D96 {
         // precision can never overflow the fixed stack buffer above. When
         // `precision <= DECIMALS`, `precision_capped == precision` and this is a
         // no-op.
-        for _ in 0..(precision - precision_capped) {
-            f.write_str("0")?;
-        }
-        Ok(())
+        let extra = precision - precision_capped;
+        pad_number(f, self.value < 0, pos + extra, |f| {
+            f.write_str(s)?;
+            for _ in 0..extra {
+                f.write_str("0")?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -3545,14 +3483,15 @@ impl fmt::Display for D96 {
 
         // Fast path for zero
         if self.value == 0 {
-            return f.write_str("0");
+            return pad_number(f, false, 1, |f| f.write_str("0"));
         }
 
         let mut buffer = [0u8; 48];
         let len = self.format_to_buffer(&mut buffer);
         // The buffer is always ASCII (digits, '.', '-'), so this never errors.
         let s = core::str::from_utf8(&buffer[..len]).unwrap();
-        f.write_str(s)
+        let digits = s.strip_prefix('-').unwrap_or(s);
+        pad_number(f, self.value < 0, digits.len(), |f| f.write_str(digits))
     }
 }
 
@@ -5193,9 +5132,14 @@ mod fixed_point_str_tests {
 
     #[test]
     fn test_from_fixed_point_str_parse_error() {
-        // Number too large to even parse into i128
+        // Valid digits too large for i128: `Overflow`, as `from_str_exact` reports them
         let result = D96::from_fixed_point_str("99999999999999999999999999999999999999999", 2);
-        assert!(matches!(result, Err(DecimalError::InvalidFormat)));
+        assert!(matches!(result, Err(DecimalError::Overflow)));
+        // ... while anything that is not `[+-]digits` is `InvalidFormat`, however big
+        assert!(matches!(
+            D96::from_fixed_point_str("99999999999999999999999999999999999999999x", 2),
+            Err(DecimalError::InvalidFormat)
+        ));
     }
 
     #[test]

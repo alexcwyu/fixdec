@@ -8,6 +8,8 @@
 
 use core::str::FromStr;
 use fixdec::{D64, D96};
+mod common;
+use num_bigint::BigInt;
 
 fn d64(s: &str) -> D64 {
     D64::from_str(s).unwrap()
@@ -310,15 +312,17 @@ fn from_f64_matches_std_round_oracle() {
         bits ^= bits << 13;
         bits ^= bits >> 7;
         bits ^= bits << 17;
+        // Up to 9.2e9 this is more digits than a double has: `v * SCALE` rounded in floating
+        // point is not the nearest raw value to `v`, so the contract is the double's EXACT value.
         let v = (bits as i64 as f64) / 1.0e9;
         assert_eq!(
-            D64::from_f64(v),
-            d64_from_f64_oracle(v),
+            D64::from_f64(v).map(|d| BigInt::from(d.to_raw())),
+            common::spec_f64::<D64>(v).ok(),
             "D64 from_f64({v})"
         );
         assert_eq!(
-            D96::from_f64(v),
-            d96_from_f64_oracle(v),
+            D96::from_f64(v).map(|d| BigInt::from(d.to_raw())),
+            common::spec_f64::<D96>(v).ok(),
             "D96 from_f64({v})"
         );
     }
